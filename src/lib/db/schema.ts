@@ -1,24 +1,22 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import {
+  pgTable, text, integer, real, boolean, timestamp, jsonb, uuid,
+  uniqueIndex, index,
+} from "drizzle-orm/pg-core";
 
-const id = () =>
-  text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID());
+const id = () => uuid("id").primaryKey().defaultRandom();
+const now = () => timestamp("ts", { withTimezone: true }).defaultNow();
 
-const now = () =>
-  integer("ts", { mode: "timestamp" }).default(sql`(unixepoch())`);
-
-export const employees = sqliteTable(
+export const employees = pgTable(
   "employees",
   {
     id: id(),
     personId: text("person_id").notNull().unique(),
     name: text("name").notNull(),
     department: text("department"),
-    active: integer("active", { mode: "boolean" }).notNull().default(true),
-    firstSeenAt: integer("first_seen_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
-    lastSeenAt: integer("last_seen_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
+    active: boolean("active").notNull().default(true),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
     notes: text("notes"),
   },
   (t) => ({
@@ -27,7 +25,7 @@ export const employees = sqliteTable(
   })
 );
 
-export const importBatches = sqliteTable("import_batches", {
+export const importBatches = pgTable("import_batches", {
   id: id(),
   filename: text("filename").notNull(),
   periodStart: text("period_start").notNull(),
@@ -35,46 +33,46 @@ export const importBatches = sqliteTable("import_batches", {
   totalRows: integer("total_rows").notNull(),
   employeesCount: integer("employees_count").notNull(),
   daysCount: integer("days_count").notNull(),
-  uploadedAt: integer("uploaded_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
-  rawSnapshot: text("raw_snapshot"),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
+  rawSnapshot: jsonb("raw_snapshot"),
 });
 
-export const justificationTypes = sqliteTable("justification_types", {
+export const justificationTypes = pgTable("justification_types", {
   id: id(),
   code: text("code").notNull().unique(),
   labelEs: text("label_es").notNull(),
-  countsAsWorked: integer("counts_as_worked", { mode: "boolean" }).notNull().default(true),
+  countsAsWorked: boolean("counts_as_worked").notNull().default(true),
   color: text("color"),
   icon: text("icon"),
   orderIndex: integer("order_index").notNull().default(0),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  active: boolean("active").notNull().default(true),
 });
 
-export const attendanceDays = sqliteTable(
+export const attendanceDays = pgTable(
   "attendance_days",
   {
     id: id(),
-    employeeId: text("employee_id")
+    employeeId: uuid("employee_id")
       .notNull()
-      .references(() => employees.id),
+      .references(() => employees.id, { onDelete: "cascade" }),
     workDate: text("work_date").notNull(),
     dayOfWeek: integer("day_of_week").notNull(),
-    isWorkday: integer("is_workday", { mode: "boolean" }).notNull(),
+    isWorkday: boolean("is_workday").notNull(),
 
-    rawPunches: text("raw_punches", { mode: "json" }).$type<string[]>().notNull(),
-    correctedPunches: text("corrected_punches", { mode: "json" }).$type<string[] | null>(),
+    rawPunches: jsonb("raw_punches").$type<string[]>().notNull(),
+    correctedPunches: jsonb("corrected_punches").$type<string[] | null>(),
 
-    justificationId: text("justification_id").references(() => justificationTypes.id),
+    justificationId: uuid("justification_id").references(() => justificationTypes.id),
     justificationNote: text("justification_note"),
 
-    effectivePunches: text("effective_punches", { mode: "json" }).$type<string[]>().notNull(),
+    effectivePunches: jsonb("effective_punches").$type<string[]>().notNull(),
     status: text("status").notNull(),
     checkIn: text("check_in"),
     checkOut: text("check_out"),
     workedMinutes: integer("worked_minutes"),
     lateMinutes: integer("late_minutes").notNull().default(0),
     earlyLeaveMinutes: integer("early_leave_minutes").notNull().default(0),
-    incidents: text("incidents", { mode: "json" }).$type<string[]>().notNull().default(sql`('[]')`),
+    incidents: jsonb("incidents").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
 
     modifiedAt: now(),
   },
@@ -85,15 +83,15 @@ export const attendanceDays = sqliteTable(
   })
 );
 
-export const holidays = sqliteTable("holidays", {
+export const holidays = pgTable("holidays", {
   id: id(),
   holidayDate: text("holiday_date").notNull().unique(),
   description: text("description").notNull(),
-  isNational: integer("is_national", { mode: "boolean" }).notNull().default(true),
+  isNational: boolean("is_national").notNull().default(true),
 });
 
-export const appSettings = sqliteTable("app_settings", {
-  id: text("id").primaryKey().$defaultFn(() => "default"),
+export const appSettings = pgTable("app_settings", {
+  id: text("id").primaryKey().default("default"),
   weekdayStart: text("weekday_start").notNull().default("08:30"),
   weekdayEnd: text("weekday_end").notNull().default("18:30"),
   weekdayHours: real("weekday_hours").notNull().default(9),
@@ -102,25 +100,25 @@ export const appSettings = sqliteTable("app_settings", {
   saturdayHours: real("saturday_hours").notNull().default(5.5),
   toleranceMinutes: integer("tolerance_minutes").notNull().default(5),
   duplicateThresholdMinutes: integer("duplicate_threshold_minutes").notNull().default(2),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 /* =========================== Auth.js tables =========================== */
 export const ROLES = ["admin", "rrhh", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
-export const users = sqliteTable("users", {
+export const users = pgTable("users", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name"),
   email: text("email").unique(),
-  emailVerified: integer("email_verified", { mode: "timestamp_ms" }),
+  emailVerified: timestamp("email_verified", { withTimezone: true, mode: "date" }),
   image: text("image"),
   role: text("role").$type<Role>().notNull().default("viewer"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
-export const accounts = sqliteTable(
+export const accounts = pgTable(
   "accounts",
   {
     userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -138,18 +136,18 @@ export const accounts = sqliteTable(
   (t) => ({ pk: uniqueIndex("acct_pk").on(t.provider, t.providerAccountId) })
 );
 
-export const sessions = sqliteTable("sessions", {
+export const sessions = pgTable("sessions", {
   sessionToken: text("session_token").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  expires: integer("expires", { mode: "timestamp_ms" }).notNull(),
+  expires: timestamp("expires", { withTimezone: true, mode: "date" }).notNull(),
 });
 
-export const verificationTokens = sqliteTable(
+export const verificationTokens = pgTable(
   "verification_tokens",
   {
     identifier: text("identifier").notNull(),
     token: text("token").notNull(),
-    expires: integer("expires", { mode: "timestamp_ms" }).notNull(),
+    expires: timestamp("expires", { withTimezone: true, mode: "date" }).notNull(),
   },
   (t) => ({ pk: uniqueIndex("vt_pk").on(t.identifier, t.token) })
 );

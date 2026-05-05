@@ -1,26 +1,12 @@
 {
   "version": "7",
-  "dialect": "sqlite",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "6",
-      "when": 1777992433163,
-      "tag": "0000_premium_eternals",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1777995176856,
-      "tag": "0001_lean_bishop",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1778007518046,
-      "tag": "0002_plain_darkstar",
+      "version": "7",
+      "when": 1778009291389,
+      "tag": "0000_opposite_joseph",
       "breakpoints": true
     }
   ]

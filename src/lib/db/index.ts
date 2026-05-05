@@ -1,25 +1,23 @@
-import { createClient } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
-import path from "node:path";
-import fs from "node:fs";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "./schema";
 
-const dbPath = process.env.DATABASE_URL ?? "./data/asistencia.db";
-const dir = path.dirname(dbPath);
-if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+const url = process.env.DATABASE_URL;
+if (!url) throw new Error("DATABASE_URL no está configurada");
 
-const url = dbPath.startsWith("file:") || dbPath.startsWith("http") || dbPath.startsWith("libsql:")
-  ? dbPath
-  : `file:${path.resolve(dbPath)}`;
+// Pooler (Supabase port 6543) requiere prepare:false porque pgbouncer no soporta prepared statements
+const isPooler = url.includes("pooler.supabase.com") || url.includes("pgbouncer=true");
 
-const client = createClient({ url });
+const client = postgres(url, {
+  prepare: !isPooler,
+  max: isPooler ? 1 : 10,
+});
+
 export const db = drizzle(client, { schema });
 
 let migrated = false;
 export async function ensureMigrated() {
+  // En Postgres las migraciones se aplican vía drizzle-kit / Supabase MCP, no en runtime.
   if (migrated) return;
-  const folder = path.resolve(process.cwd(), "drizzle");
-  if (fs.existsSync(folder)) await migrate(db, { migrationsFolder: folder });
   migrated = true;
 }
