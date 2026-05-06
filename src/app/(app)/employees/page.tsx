@@ -137,7 +137,7 @@ export default async function EmployeesPage({
         <Card className="opacity-80">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Sin actividad ({inactive.length})</CardTitle>
-            {me?.role === "admin" && <CleanInactiveButton count={inactive.length} />}
+            {(me?.role === "admin" || me?.role === "rrhh") && <CleanInactiveButton count={inactive.length} />}
           </CardHeader>
           <CardContent className="p-0">
             <Table>

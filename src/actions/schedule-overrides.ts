@@ -6,7 +6,7 @@ import { eq, asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { recalcAttendanceDaysByDates } from "@/lib/analyzer/recalc-day";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRrhh } from "@/lib/auth-helpers";
 
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -33,7 +33,7 @@ function revalidateAffected() {
 }
 
 export async function listScheduleOverridesAction() {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   return db.select().from(scheduleOverrides).orderBy(asc(scheduleOverrides.workDate));
 }
@@ -42,7 +42,7 @@ export async function createScheduleOverrideAction(
   input: Input
 ): Promise<Result<{ recalculated: number }>> {
   try {
-    await requireAdmin();
+    await requireRrhh();
     await ensureMigrated();
     const parsed = schema.safeParse(input);
     if (!parsed.success) {
@@ -65,7 +65,7 @@ export async function updateScheduleOverrideAction(
   input: Input
 ): Promise<Result<{ recalculated: number }>> {
   try {
-    await requireAdmin();
+    await requireRrhh();
     await ensureMigrated();
     const parsed = schema.safeParse(input);
     if (!parsed.success) {
@@ -87,7 +87,7 @@ export async function deleteScheduleOverrideAction(input: {
   workDate: string;
 }): Promise<Result<{ recalculated: number }>> {
   try {
-    await requireAdmin();
+    await requireRrhh();
     await ensureMigrated();
     const date = z.string().regex(DATE_RE).safeParse(input.workDate);
     if (!date.success) return { ok: false, error: "Fecha inválida" };

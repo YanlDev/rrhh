@@ -4,7 +4,7 @@ import { db, ensureMigrated } from "@/lib/db";
 import { employees, attendanceDays } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRrhh } from "@/lib/auth-helpers";
 
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -17,7 +17,7 @@ export async function deleteInactiveEmployeesAction(): Promise<
   Result<{ deleted: number }>
 > {
   try {
-    await requireAdmin();
+    await requireRrhh();
     await ensureMigrated();
 
     const deleted = await db

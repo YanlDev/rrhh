@@ -5,7 +5,7 @@ import { holidays } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { recalcAttendanceDaysByDates } from "@/lib/analyzer/recalc-day";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRrhh } from "@/lib/auth-helpers";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -22,7 +22,7 @@ export async function createHolidayAction(input: {
   description: string;
   isNational: boolean;
 }): Promise<{ ok: true }> {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   if (!DATE_RE.test(input.date)) throw new Error("Fecha debe ser YYYY-MM-DD");
   if (!input.description.trim()) throw new Error("Descripción requerida");
@@ -46,7 +46,7 @@ export async function updateHolidayAction(input: {
   description?: string;
   isNational?: boolean;
 }): Promise<{ ok: true }> {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   const { id, ...rest } = input;
   await db.update(holidays).set(rest).where(eq(holidays.id, id));
@@ -56,7 +56,7 @@ export async function updateHolidayAction(input: {
 }
 
 export async function deleteHolidayAction(id: string): Promise<{ ok: true }> {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   // Capturar la fecha antes de borrar para poder recalcular solo ese día.
   const found = await db

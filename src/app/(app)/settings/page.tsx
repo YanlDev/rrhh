@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Settings as SettingsIcon, Clock, ShieldCheck, CalendarX, ArrowRight, UserCog, CalendarDays } from "lucide-react";
-import { getCurrentUser } from "@/lib/auth-helpers";
+import { requireRoleOrRedirect, getCurrentUser } from "@/lib/auth-helpers";
 
 const SECTIONS = [
   { href: "/settings/schedule", title: "Horarios", description: "Hora de entrada/salida L-V y sábados, tolerancia, umbral de duplicados.", icon: Clock, adminOnly: false },
@@ -12,8 +12,10 @@ const SECTIONS = [
 ];
 
 export default async function SettingsHub() {
-  const user = await getCurrentUser();
-  const isAdmin = user?.role === "admin";
+  // Admin y RRHH ven todo (excepto sección de usuarios). Viewer no entra acá.
+  await requireRoleOrRedirect("admin", "rrhh");
+  const me = await getCurrentUser();
+  const isAdmin = me?.role === "admin";
   const visible = SECTIONS.filter((s) => !s.adminOnly || isAdmin);
 
   return (

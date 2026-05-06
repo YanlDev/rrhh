@@ -6,7 +6,7 @@ import { eq, asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { recalcAllAction } from "./recalc";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRrhh } from "@/lib/auth-helpers";
 
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,7 +32,7 @@ type PeriodInput = z.infer<typeof periodSchema>;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
 export async function listSchedulePeriodsAction() {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   return db.select().from(schedulePeriods).orderBy(asc(schedulePeriods.effectiveFrom));
 }
@@ -41,7 +41,7 @@ export async function createSchedulePeriodAction(
   input: PeriodInput
 ): Promise<Result<{ id: string; recalculated: number }>> {
   try {
-    await requireAdmin();
+    await requireRrhh();
     await ensureMigrated();
     const parsed = periodSchema.safeParse(input);
     if (!parsed.success) {
@@ -66,7 +66,7 @@ export async function updateSchedulePeriodAction(input: {
   id: string;
 } & PeriodInput): Promise<Result<{ recalculated: number }>> {
   try {
-    await requireAdmin();
+    await requireRrhh();
     await ensureMigrated();
     const id = z.string().uuid().safeParse(input.id);
     if (!id.success) return { ok: false, error: "ID inválido" };
@@ -91,7 +91,7 @@ export async function deleteSchedulePeriodAction(input: {
   id: string;
 }): Promise<Result<{ recalculated: number }>> {
   try {
-    await requireAdmin();
+    await requireRrhh();
     await ensureMigrated();
     const id = z.string().uuid().safeParse(input.id);
     if (!id.success) return { ok: false, error: "ID inválido" };

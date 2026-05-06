@@ -4,7 +4,7 @@ import { db, ensureMigrated } from "@/lib/db";
 import { justificationTypes } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRrhh } from "@/lib/auth-helpers";
 
 export async function createJustificationTypeAction(input: {
   code: string;
@@ -13,7 +13,7 @@ export async function createJustificationTypeAction(input: {
   color?: string;
   orderIndex?: number;
 }): Promise<{ ok: true }> {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   await db.insert(justificationTypes).values({
     code: input.code.trim(),
@@ -36,7 +36,7 @@ export async function updateJustificationTypeAction(input: {
   orderIndex?: number;
   active?: boolean;
 }): Promise<{ ok: true }> {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   const { id, ...rest } = input;
   await db.update(justificationTypes).set(rest).where(eq(justificationTypes.id, id));
@@ -46,7 +46,7 @@ export async function updateJustificationTypeAction(input: {
 }
 
 export async function deactivateJustificationTypeAction(id: string): Promise<{ ok: true }> {
-  await requireAdmin();
+  await requireRrhh();
   await ensureMigrated();
   await db.update(justificationTypes).set({ active: false }).where(eq(justificationTypes.id, id));
   revalidatePath("/settings");
