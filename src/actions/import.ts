@@ -50,7 +50,14 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
     loadAllSchedulePeriods(),
     loadScheduleOverrides(),
     db.select({ holidayDate: holidays.holidayDate }).from(holidays),
-    db.select({ id: employees.id, personId: employees.personId }).from(employees),
+    db
+      .select({
+        id: employees.id,
+        personId: employees.personId,
+        hireDate: employees.hireDate,
+        terminationDate: employees.terminationDate,
+      })
+      .from(employees),
     db
       .select({
         id: justificationTypes.id,
@@ -60,6 +67,12 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
   ]);
   const holidaySet = new Set(holidayRows.map((h) => h.holidayDate));
   const existingEmpIdByPersonId = new Map(existingEmployees.map((e) => [e.personId, e.id]));
+  const tenureByPersonId = new Map(
+    existingEmployees.map((e) => [
+      e.personId,
+      { hireDate: e.hireDate, terminationDate: e.terminationDate },
+    ])
+  );
   const jusById = new Map(jusTypes.map((j) => [j.id, j.countsAsWorked]));
 
   // ---------- Insert del batch (auditoría) ----------
@@ -150,15 +163,34 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
           : null;
       const effective = corrected ?? d.punches;
 
+      const tenure = tenureByPersonId.get(emp.personId);
+      const outOfTenure =
+        !!tenure &&
+        ((tenure.hireDate && d.date < tenure.hireDate) ||
+          (tenure.terminationDate && d.date > tenure.terminationDate));
+
       const resolved = resolveScheduleForDate(periods, overrides, d.date);
-      const analysis = analyzeDay({
-        punches: effective,
-        dayOfWeek: d.dayOfWeek,
-        // Si la fecha tiene override, ignora si está en holidays — el override la convierte en workday.
-        isHoliday: resolved.isOverride ? false : holidaySet.has(d.date),
-        schedule: resolved.schedule,
-        justified,
-      });
+      const analysis = outOfTenure
+        ? {
+            status: "no_workday" as const,
+            isWorkday: false,
+            checkIn: null,
+            checkOut: null,
+            workedMinutes: 0,
+            lateMinutes: 0,
+            earlyLeaveMinutes: 0,
+            overtimeMinutes: 0,
+            undertimeMinutes: 0,
+            incidents: [] as string[],
+          }
+        : analyzeDay({
+            punches: effective,
+            dayOfWeek: d.dayOfWeek,
+            // Si la fecha tiene override, ignora si está en holidays — el override la convierte en workday.
+            isHoliday: resolved.isOverride ? false : holidaySet.has(d.date),
+            schedule: resolved.schedule,
+            justified,
+          });
       if (["incomplete", "absent"].includes(analysis.status)) incidentsDetected++;
       if (corrected) preservedCorrections++;
 

@@ -3,6 +3,7 @@ import {
   attendanceDays,
   holidays,
   justificationTypes,
+  employees,
   type AttendanceDay,
 } from "@/lib/db/schema";
 import { analyzeDay } from "./day-analyzer";
@@ -19,14 +20,27 @@ export type RecalcContext = {
   resolveSchedule: (workDate: string) => { schedule: Schedule; isOverride: boolean };
   holidaySet: Set<string>;
   jusById: Map<string, { countsAsWorked: boolean }>;
+  /** Tenure por employeeId: hire/termination dates. */
+  tenureByEmpId: Map<string, { hireDate: string | null; terminationDate: string | null }>;
 };
+
+/** ¿La fecha cae fuera del período de vínculo del empleado? */
+export function isOutOfTenure(
+  workDate: string,
+  tenure: { hireDate: string | null; terminationDate: string | null } | undefined
+): boolean {
+  if (!tenure) return false;
+  if (tenure.hireDate && workDate < tenure.hireDate) return true;
+  if (tenure.terminationDate && workDate > tenure.terminationDate) return true;
+  return false;
+}
 
 /**
  * Carga UNA vez todos los datos auxiliares (periodos, overrides, feriados,
  * justificaciones) para evitar queries por cada attendance_day.
  */
 export async function loadRecalcContext(): Promise<RecalcContext> {
-  const [periods, overrides, holidayRows, jusTypes] = await Promise.all([
+  const [periods, overrides, holidayRows, jusTypes, empTenure] = await Promise.all([
     loadAllSchedulePeriods(),
     loadScheduleOverrides(),
     db.select({ holidayDate: holidays.holidayDate }).from(holidays),
@@ -36,6 +50,13 @@ export async function loadRecalcContext(): Promise<RecalcContext> {
         countsAsWorked: justificationTypes.countsAsWorked,
       })
       .from(justificationTypes),
+    db
+      .select({
+        id: employees.id,
+        hireDate: employees.hireDate,
+        terminationDate: employees.terminationDate,
+      })
+      .from(employees),
   ]);
   return {
     resolveSchedule: (workDate: string) =>
@@ -44,10 +65,39 @@ export async function loadRecalcContext(): Promise<RecalcContext> {
     jusById: new Map(
       jusTypes.map((j) => [j.id, { countsAsWorked: j.countsAsWorked }])
     ),
+    tenureByEmpId: new Map(
+      empTenure.map((e) => [
+        e.id,
+        { hireDate: e.hireDate, terminationDate: e.terminationDate },
+      ])
+    ),
   };
 }
 
 async function applyRecalc(row: AttendanceDay, ctx: RecalcContext) {
+  // Fuera del período de vínculo del empleado: día no laborable, todo en cero.
+  const tenure = ctx.tenureByEmpId.get(row.employeeId);
+  if (isOutOfTenure(row.workDate, tenure)) {
+    await db
+      .update(attendanceDays)
+      .set({
+        effectivePunches: row.correctedPunches ?? row.rawPunches,
+        isWorkday: false,
+        status: "no_workday",
+        checkIn: null,
+        checkOut: null,
+        workedMinutes: 0,
+        lateMinutes: 0,
+        earlyLeaveMinutes: 0,
+        overtimeMinutes: 0,
+        undertimeMinutes: 0,
+        incidents: [],
+        modifiedAt: new Date(),
+      })
+      .where(eq(attendanceDays.id, row.id));
+    return;
+  }
+
   const effective = row.correctedPunches ?? row.rawPunches;
   const jus = row.justificationId ? ctx.jusById.get(row.justificationId) ?? null : null;
   const { schedule, isOverride } = ctx.resolveSchedule(row.workDate);

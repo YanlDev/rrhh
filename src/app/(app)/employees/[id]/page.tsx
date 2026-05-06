@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ArrowLeft, Hourglass, Clock, LogOut, AlertTriangle, XCircle, ShieldCheck, FileDown } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth-helpers";
+import { EmployeeTenureCard } from "@/components/employee-tenure-card";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +98,13 @@ export default async function EmployeeDetail({
         <Mini icon={AlertTriangle} label="Incompletos" value={Number(t.incomplete)} />
         <Mini icon={ShieldCheck} label="Justificados" value={Number(t.justified)} />
       </div>
+
+      <EmployeeTenureCard
+        employeeId={emp.id}
+        hireDate={emp.hireDate}
+        terminationDate={emp.terminationDate}
+        canEdit={canEdit}
+      />
 
       <EmployeeDayView
         canEdit={canEdit}

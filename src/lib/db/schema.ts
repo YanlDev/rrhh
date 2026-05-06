@@ -17,6 +17,8 @@ export const employees = pgTable(
     active: boolean("active").notNull().default(true),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
+    hireDate: text("hire_date"),                 // 'YYYY-MM-DD' o null
+    terminationDate: text("termination_date"),   // 'YYYY-MM-DD' o null = activo
     notes: text("notes"),
   },
   (t) => ({
