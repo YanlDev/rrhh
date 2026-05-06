@@ -5,7 +5,7 @@ import { scheduleOverrides } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { recalcAllAction } from "./recalc";
+import { recalcAttendanceDaysByDates } from "@/lib/analyzer/recalc-day";
 import { requireAdmin } from "@/lib/auth-helpers";
 
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
@@ -25,6 +25,13 @@ const schema = z.object({
 type Input = z.infer<typeof schema>;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
+function revalidateAffected() {
+  revalidatePath("/settings/schedule-overrides");
+  revalidatePath("/review");
+  revalidatePath("/employees");
+  revalidatePath("/");
+}
+
 export async function listScheduleOverridesAction() {
   await requireAdmin();
   await ensureMigrated();
@@ -42,9 +49,9 @@ export async function createScheduleOverrideAction(
       return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
     }
     await db.insert(scheduleOverrides).values({ ...parsed.data, updatedAt: new Date() });
-    const r = await recalcAllAction();
-    revalidatePath("/settings/schedule-overrides");
-    return { ok: true, data: { recalculated: r.updated } };
+    const updated = await recalcAttendanceDaysByDates([parsed.data.workDate]);
+    revalidateAffected();
+    return { ok: true, data: { recalculated: updated } };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error";
     if (/duplicate|unique|primary/i.test(msg)) {
@@ -68,9 +75,9 @@ export async function updateScheduleOverrideAction(
       .update(scheduleOverrides)
       .set({ ...parsed.data, updatedAt: new Date() })
       .where(eq(scheduleOverrides.workDate, parsed.data.workDate));
-    const r = await recalcAllAction();
-    revalidatePath("/settings/schedule-overrides");
-    return { ok: true, data: { recalculated: r.updated } };
+    const updated = await recalcAttendanceDaysByDates([parsed.data.workDate]);
+    revalidateAffected();
+    return { ok: true, data: { recalculated: updated } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error" };
   }
@@ -85,9 +92,9 @@ export async function deleteScheduleOverrideAction(input: {
     const date = z.string().regex(DATE_RE).safeParse(input.workDate);
     if (!date.success) return { ok: false, error: "Fecha inválida" };
     await db.delete(scheduleOverrides).where(eq(scheduleOverrides.workDate, date.data));
-    const r = await recalcAllAction();
-    revalidatePath("/settings/schedule-overrides");
-    return { ok: true, data: { recalculated: r.updated } };
+    const updated = await recalcAttendanceDaysByDates([date.data]);
+    revalidateAffected();
+    return { ok: true, data: { recalculated: updated } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error" };
   }

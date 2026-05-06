@@ -89,6 +89,26 @@ export async function recalcAttendanceDay(rowId: string, ctxArg?: RecalcContext)
 }
 
 /**
+ * Recalcula los attendance_days de una o varias FECHAS específicas.
+ * Útil para cambios de feriados, días especiales, etc. — donde solo
+ * cambia el comportamiento de un día puntual.
+ */
+export async function recalcAttendanceDaysByDates(
+  dates: string[],
+  ctxArg?: RecalcContext
+): Promise<number> {
+  if (dates.length === 0) return 0;
+  const ctx = ctxArg ?? (await loadRecalcContext());
+  const rows = await db
+    .select()
+    .from(attendanceDays)
+    .where(inArray(attendanceDays.workDate, dates));
+  if (rows.length === 0) return 0;
+  await Promise.all(rows.map((r) => applyRecalc(r, ctx)));
+  return rows.length;
+}
+
+/**
  * Recalcula varias filas en paralelo (pipelined). Carga el contexto auxiliar
  * UNA sola vez. Si `ids === null` recalcula TODA la tabla.
  */

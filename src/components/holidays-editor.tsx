@@ -63,7 +63,8 @@ export function HolidaysEditor({ rows }: { rows: Row[] }) {
                 </TableCell>
               </TableRow>
             ) : rows.map((r) => (
-              <TableRow key={r.id}>
+              // key incluye los datos para forzar remount al actualizar.
+              <TableRow key={`${r.id}:${r.description}:${r.isNational}`}>
                 <TableCell className="font-mono text-xs">{r.holidayDate}</TableCell>
                 <TableCell>
                   <Input
