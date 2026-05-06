@@ -24,6 +24,7 @@ export function EmployeeDayView({
   periodLabel,
   periodStart,
   periodEnd,
+  canEdit = true,
 }: {
   rows: EmployeeDayRow[];
   employeeName: string;
@@ -31,11 +32,13 @@ export function EmployeeDayView({
   periodLabel: string;
   periodStart: string;
   periodEnd: string;
+  canEdit?: boolean;
 }) {
   const [open, setOpen] = useState<DayForModal | null>(null);
   const byDate = new Map(rows.map((r) => [r.workDate, r]));
 
   const openByDate = (date: string) => {
+    if (!canEdit) return;
     const r = byDate.get(date);
     if (r) setOpen(r);
   };
@@ -62,9 +65,11 @@ export function EmployeeDayView({
               workedMinutes: d.workedMinutes,
             }))}
           />
-          <p className="text-xs text-muted-foreground mt-3">
-            Click en un día para editar marcas o justificar.
-          </p>
+          {canEdit && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Click en un día para editar marcas o justificar.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -83,12 +88,16 @@ export function EmployeeDayView({
                 <TableHead className="text-right">Tarde</TableHead>
                 <TableHead className="text-right">Salida temp.</TableHead>
                 <TableHead className="text-right">H. trab.</TableHead>
-                <TableHead></TableHead>
+                {canEdit && <TableHead></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((d) => (
-                <TableRow key={d.id} className="cursor-pointer" onClick={() => setOpen(d)}>
+                <TableRow
+                  key={d.id}
+                  className={canEdit ? "cursor-pointer" : ""}
+                  onClick={canEdit ? () => setOpen(d) : undefined}
+                >
                   <TableCell className="font-mono text-xs">{d.workDate}</TableCell>
                   <TableCell>{DOW_SHORT[d.dayOfWeek]}</TableCell>
                   <TableCell className="font-mono text-xs">
@@ -103,11 +112,13 @@ export function EmployeeDayView({
                   <TableCell className="text-right tabular-nums">
                     {d.workedMinutes != null ? `${(d.workedMinutes / 60).toFixed(1)}h` : "—"}
                   </TableCell>
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="sm" onClick={() => setOpen(d)}>
-                      <Pencil className="size-3.5" /> Editar
-                    </Button>
-                  </TableCell>
+                  {canEdit && (
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <Button variant="ghost" size="sm" onClick={() => setOpen(d)}>
+                        <Pencil className="size-3.5" /> Editar
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -115,13 +126,15 @@ export function EmployeeDayView({
         </CardContent>
       </Card>
 
-      <CorrectionModal
-        open={!!open}
-        onClose={() => setOpen(null)}
-        day={open}
-        employeeName={employeeName}
-        justificationTypes={justificationTypes}
-      />
+      {canEdit && (
+        <CorrectionModal
+          open={!!open}
+          onClose={() => setOpen(null)}
+          day={open}
+          employeeName={employeeName}
+          justificationTypes={justificationTypes}
+        />
+      )}
     </>
   );
 }

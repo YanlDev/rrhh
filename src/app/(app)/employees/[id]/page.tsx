@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { ArrowLeft, Hourglass, Clock, LogOut, AlertTriangle, XCircle, ShieldCheck, FileDown } from "lucide-react";
+import { getCurrentUser } from "@/lib/auth-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ export default async function EmployeeDetail({
   searchParams: Promise<{ period?: string }>;
 }) {
   await ensureMigrated();
+  const me = await getCurrentUser();
+  const canEdit = me?.role === "admin" || me?.role === "rrhh";
   const { id } = await params;
   const sp = await searchParams;
   const period = await resolvePeriod(sp);
@@ -95,6 +98,7 @@ export default async function EmployeeDetail({
       </div>
 
       <EmployeeDayView
+        canEdit={canEdit}
         employeeName={emp.name}
         justificationTypes={jusOptions}
         periodLabel={period.label}

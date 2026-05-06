@@ -8,6 +8,9 @@ import { z } from "zod";
 import { recalcAllAction } from "./recalc";
 import { requireAdmin } from "@/lib/auth-helpers";
 
+// Acciones que disparan recalc-all pueden tardar; subir timeout en Vercel.
+export const maxDuration = 60;
+
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -53,7 +56,7 @@ export async function createSchedulePeriodAction(
       .returning({ id: schedulePeriods.id });
 
     const r = await recalcAllAction();
-    revalidatePath("/", "layout");
+    revalidatePath("/settings/schedule");
     return { ok: true, data: { id: inserted[0].id, recalculated: r.updated } };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error";
@@ -80,7 +83,7 @@ export async function updateSchedulePeriodAction(input: {
       .where(eq(schedulePeriods.id, id.data));
 
     const r = await recalcAllAction();
-    revalidatePath("/", "layout");
+    revalidatePath("/settings/schedule");
     return { ok: true, data: { recalculated: r.updated } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error" };
@@ -103,7 +106,7 @@ export async function deleteSchedulePeriodAction(input: {
     await db.delete(schedulePeriods).where(eq(schedulePeriods.id, id.data));
 
     const r = await recalcAllAction();
-    revalidatePath("/", "layout");
+    revalidatePath("/settings/schedule");
     return { ok: true, data: { recalculated: r.updated } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Error" };
