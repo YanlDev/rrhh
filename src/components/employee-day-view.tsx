@@ -15,6 +15,7 @@ export type EmployeeDayRow = DayForModal & {
   lateMinutes: number;
   earlyLeaveMinutes: number;
   workedMinutes: number | null;
+  justificationLabel?: string | null;
 };
 
 export function EmployeeDayView({
@@ -88,6 +89,7 @@ export function EmployeeDayView({
                 <TableHead className="text-right">Tarde</TableHead>
                 <TableHead className="text-right">Salida temp.</TableHead>
                 <TableHead className="text-right">H. trab.</TableHead>
+                <TableHead>Obs.</TableHead>
                 {canEdit && <TableHead></TableHead>}
               </TableRow>
             </TableHeader>
@@ -111,6 +113,20 @@ export function EmployeeDayView({
                   <TableCell className="text-right tabular-nums">{d.earlyLeaveMinutes || ""}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {d.workedMinutes != null ? `${(d.workedMinutes / 60).toFixed(1)}h` : "—"}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {d.justificationLabel ? (
+                      <div className="flex flex-col">
+                        <span className="text-blue-700">{d.justificationLabel}</span>
+                        {d.justificationFrom && d.justificationTo && (
+                          <span className="text-[10px] font-mono text-muted-foreground">
+                            {d.justificationFrom}–{d.justificationTo}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   {canEdit && (
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>

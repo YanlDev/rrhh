@@ -50,6 +50,7 @@ export default async function EmployeeDetail({
   const days = await db.select().from(attendanceDays).where(inRange).orderBy(asc(attendanceDays.workDate));
   const jusTypes = await listJustificationTypesAction();
   const jusOptions = jusTypes.map((j) => ({ id: j.id, code: j.code, labelEs: j.labelEs, countsAsWorked: j.countsAsWorked }));
+  const jusLabelById = new Map(jusTypes.map((j) => [j.id, j.labelEs]));
 
   const totals = await db
     .select({
@@ -114,6 +115,9 @@ export default async function EmployeeDetail({
           status: d.status,
           justificationId: d.justificationId,
           justificationNote: d.justificationNote,
+          justificationFrom: d.justificationFrom,
+          justificationTo: d.justificationTo,
+          justificationLabel: d.justificationId ? jusLabelById.get(d.justificationId) ?? null : null,
           lateMinutes: d.lateMinutes,
           earlyLeaveMinutes: d.earlyLeaveMinutes,
           workedMinutes: d.workedMinutes,
