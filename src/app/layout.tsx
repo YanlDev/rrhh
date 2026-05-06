@@ -5,6 +5,11 @@ import { ThemeProvider } from "@/components/theme-provider";
 export const metadata: Metadata = {
   title: "Sistema de Reportes RRHH",
   description: "Sistema de análisis de asistencia",
+  icons: {
+    icon: "/competencia.png",
+    shortcut: "/competencia.png",
+    apple: "/competencia.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
