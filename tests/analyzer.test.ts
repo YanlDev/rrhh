@@ -613,3 +613,43 @@ test("Justificación · ventana mañana NO cubre lunch (no almorzó durante)", (
   assert.ok(r.incidents.includes("no_lunch_break"));
   assert.equal(r.status, "incomplete");
 });
+
+test("Justificación · comisión 1.5 días — sale 12:30 día 1, vuelve 17:00 día 2", () => {
+  // Día 1: entra 08:30, marca salida 12:30 y se va de comisión hasta fin de día.
+  const dia1 = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["08:30", "12:30"],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: true, fromTime: "12:30", toTime: "18:30" },
+  });
+  // Real = 240, justificado bruto = 360, ventana cubre lunch → -90 = 270
+  // Total = 240 + 270 = 510 (= expected)
+  assert.equal(dia1.workedMinutes, 510);
+  assert.equal(dia1.lateMinutes, 0);
+  assert.equal(dia1.earlyLeaveMinutes, 0, "ventana cubre el final → no hay salida temprana");
+  assert.equal(dia1.overtimeMinutes, 0);
+  assert.equal(dia1.undertimeMinutes, 0);
+  assert.deepEqual(dia1.incidents, []);
+  assert.equal(dia1.status, "justified");
+
+  // Día 2: regresa de comisión a las 17:00, sale 18:30.
+  const dia2 = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["17:00", "18:30"],
+    dayOfWeek: 2,
+    isHoliday: false,
+    justified: { countsAsWorked: true, fromTime: "08:30", toTime: "17:00" },
+  });
+  // Real = 90, justificado bruto = 510, ventana cubre lunch → -90 = 420
+  // Total = 90 + 420 = 510 (= expected)
+  assert.equal(dia2.workedMinutes, 510);
+  assert.equal(dia2.lateMinutes, 0, "ventana cubre el inicio → no es tarde");
+  assert.equal(dia2.earlyLeaveMinutes, 0);
+  assert.equal(dia2.overtimeMinutes, 0);
+  assert.equal(dia2.undertimeMinutes, 0);
+  assert.equal(dia2.status, "justified");
+
+  // Total días sumados: 1020 min = 17h (= 2 días esperados de mayo)
+  assert.equal((dia1.workedMinutes ?? 0) + (dia2.workedMinutes ?? 0), 1020);
+});
