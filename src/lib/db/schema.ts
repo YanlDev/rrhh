@@ -64,6 +64,8 @@ export const attendanceDays = pgTable(
 
     justificationId: uuid("justification_id").references(() => justificationTypes.id),
     justificationNote: text("justification_note"),
+    justificationFrom: text("justification_from"), // 'HH:mm' o null = día completo
+    justificationTo: text("justification_to"),     // 'HH:mm' o null = día completo
 
     effectivePunches: jsonb("effective_punches").$type<string[]>().notNull(),
     status: text("status").notNull(),

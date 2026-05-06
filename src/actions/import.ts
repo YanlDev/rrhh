@@ -116,6 +116,8 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
           correctedPunches: attendanceDays.correctedPunches,
           justificationId: attendanceDays.justificationId,
           justificationNote: attendanceDays.justificationNote,
+          justificationFrom: attendanceDays.justificationFrom,
+          justificationTo: attendanceDays.justificationTo,
         })
         .from(attendanceDays)
         .where(inArray(attendanceDays.employeeId, activeEmpIds))
@@ -140,7 +142,11 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
       const corrected = existing?.correctedPunches ?? null;
       const justified =
         existing?.justificationId
-          ? { countsAsWorked: jusById.get(existing.justificationId) ?? true }
+          ? {
+              countsAsWorked: jusById.get(existing.justificationId) ?? true,
+              fromTime: existing.justificationFrom,
+              toTime: existing.justificationTo,
+            }
           : null;
       const effective = corrected ?? d.punches;
 
@@ -165,6 +171,8 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
         correctedPunches: corrected,
         justificationId: existing?.justificationId ?? null,
         justificationNote: existing?.justificationNote ?? null,
+        justificationFrom: existing?.justificationFrom ?? null,
+        justificationTo: existing?.justificationTo ?? null,
         effectivePunches: effective,
         status: analysis.status,
         checkIn: analysis.checkIn,
@@ -193,6 +201,8 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
           dayOfWeek: sql`EXCLUDED.day_of_week`,
           isWorkday: sql`EXCLUDED.is_workday`,
           effectivePunches: sql`EXCLUDED.effective_punches`,
+          justificationFrom: sql`EXCLUDED.justification_from`,
+          justificationTo: sql`EXCLUDED.justification_to`,
           status: sql`EXCLUDED.status`,
           checkIn: sql`EXCLUDED.check_in`,
           checkOut: sql`EXCLUDED.check_out`,

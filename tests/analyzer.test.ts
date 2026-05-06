@@ -501,3 +501,78 @@ test("Extra · sábado mayo con 4 marcas (almorzó aunque no debía)", () => {
   // Sábado no detecta lunch_too_short ni lunch_too_long
   assert.equal(r.incidents.length, 0);
 });
+
+/* ============================================================
+ * Justificación con ventana horaria
+ * ============================================================ */
+
+test("Justificación · día completo (sin ventana) — vacaciones cuenta como trabajada", () => {
+  const r = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: [],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: true },
+  });
+  assert.equal(r.status, "justified");
+  assert.equal(r.workedMinutes, 510); // 8.5h
+});
+
+test("Justificación · ventana de inicio cubre la entrada (comisión hasta 11:00)", () => {
+  // Worker en comisión 08:30-11:00 (cuenta), llega a oficina 11:00, almuerzo, sale 18:30.
+  const r = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["11:00", "12:30", "13:30", "18:30"],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: true, fromTime: "08:30", toTime: "11:00" },
+  });
+  assert.equal(r.status, "justified");
+  assert.equal(r.lateMinutes, 0, "llegada a 11:00 no es tarde porque la ventana cubre el inicio");
+  // worked real = (12:30-11:00) + (18:30-13:30) = 90 + 300 = 390. + 150 justificadas = 540.
+  assert.equal(r.workedMinutes, 540);
+  assert.equal(r.overtimeMinutes, 30); // 540 vs 510 esperado
+});
+
+test("Justificación · ventana de fin cubre la salida (médico 16:00-18:30)", () => {
+  // Worker día normal pero sale 16:00 con justificación médica.
+  const r = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["08:30", "12:00", "13:30", "16:00"],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: true, fromTime: "16:00", toTime: "18:30" },
+  });
+  assert.equal(r.status, "justified");
+  assert.equal(r.earlyLeaveMinutes, 0, "salida 16:00 no es temprana porque la ventana cubre el final");
+  // worked real = (12:00-08:30) + (16:00-13:30) = 210 + 150 = 360. + 150 justificadas = 510.
+  assert.equal(r.workedMinutes, 510);
+  assert.equal(r.overtimeMinutes, 0);
+  assert.equal(r.undertimeMinutes, 0);
+});
+
+test("Justificación · ventana parcial sin cuenta (permiso sin goce 2h)", () => {
+  // Worker día normal pero 14:00-16:00 permiso sin goce.
+  const r = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["08:30", "12:00", "13:30", "18:30"],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: false, fromTime: "14:00", toTime: "16:00" },
+  });
+  // worked real = (12:00-08:30) + (18:30-13:30) = 210 + 300 = 510. No suma justificadas.
+  assert.equal(r.workedMinutes, 510);
+});
+
+test("Justificación · ventana de inicio + tardanza después de la ventana", () => {
+  // Comisión hasta 11:00 pero llegó a oficina 11:30 (tarde de 25 min después de la ventana).
+  const r = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["11:30", "12:30", "13:30", "18:30"],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: true, fromTime: "08:30", toTime: "11:00" },
+  });
+  // limit ajustado: 11:00 + 5 = 11:05. Llegó 11:30 → tarde 25 min.
+  assert.equal(r.lateMinutes, 25);
+});

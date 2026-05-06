@@ -31,6 +31,8 @@ export type DayForModal = {
   status: string;
   justificationId: string | null;
   justificationNote: string | null;
+  justificationFrom?: string | null;
+  justificationTo?: string | null;
 };
 
 export type JustificationOption = {
@@ -60,6 +62,9 @@ export function CorrectionModal({
   const [punches, setPunches] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [jusId, setJusId] = useState<string>("");
+  const [jusScope, setJusScope] = useState<"full" | "window">("full");
+  const [jusFrom, setJusFrom] = useState("");
+  const [jusTo, setJusTo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -68,6 +73,10 @@ export function CorrectionModal({
     setPunches(day.correctedPunches ?? day.rawPunches);
     setNote(day.justificationNote ?? "");
     setJusId(day.justificationId ?? "");
+    const hasWindow = !!(day.justificationFrom && day.justificationTo);
+    setJusScope(hasWindow ? "window" : "full");
+    setJusFrom(day.justificationFrom ?? "");
+    setJusTo(day.justificationTo ?? "");
     if (day.justificationId) setMode("justify");
     else if (day.correctedPunches) setMode("edit");
     else setMode("keep");
@@ -85,7 +94,16 @@ export function CorrectionModal({
           if (day.justificationId) await clearJustificationAction(day.id);
         } else if (mode === "justify") {
           if (!jusId) { setError("Selecciona un motivo"); return; }
-          await justifyDayAction({ attendanceDayId: day.id, justificationTypeId: jusId, note: note || null });
+          const fromTime = jusScope === "window" ? jusFrom : null;
+          const toTime = jusScope === "window" ? jusTo : null;
+          const res = await justifyDayAction({
+            attendanceDayId: day.id,
+            justificationTypeId: jusId,
+            note: note || null,
+            fromTime,
+            toTime,
+          });
+          if (!res.ok) { setError(res.error); return; }
         } else {
           if (day.correctedPunches) await clearCorrectionAction(day.id);
           if (day.justificationId) await clearJustificationAction(day.id);
@@ -159,18 +177,52 @@ export function CorrectionModal({
         )}
 
         {mode === "justify" && (
-          <section className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">Motivo</Label>
-            <Select value={jusId} onValueChange={setJusId}>
-              <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
-              <SelectContent>
-                {justificationTypes.map((j) => (
-                  <SelectItem key={j.id} value={j.id}>
-                    {j.labelEs}{j.countsAsWorked ? "" : " (no cuenta)"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <section className="space-y-3">
+            <div className="space-y-2">
+              <Label className="text-xs uppercase text-muted-foreground">Motivo</Label>
+              <Select value={jusId} onValueChange={setJusId}>
+                <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+                <SelectContent>
+                  {justificationTypes.map((j) => (
+                    <SelectItem key={j.id} value={j.id}>
+                      {j.labelEs}{j.countsAsWorked ? "" : " (no cuenta)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs uppercase text-muted-foreground">Alcance</Label>
+              <RadioGroup value={jusScope} onValueChange={(v) => setJusScope(v as "full" | "window")} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="full" id="js-full" />
+                  <Label htmlFor="js-full" className="font-normal text-sm">Día completo</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="window" id="js-window" />
+                  <Label htmlFor="js-window" className="font-normal text-sm">Solo un rango horario</Label>
+                </div>
+              </RadioGroup>
+            </div>
+            {jusScope === "window" && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="js-from" className="text-xs uppercase text-muted-foreground">Desde</Label>
+                  <Input id="js-from" value={jusFrom} onChange={(e) => setJusFrom(e.target.value)}
+                    placeholder="08:30" className="font-mono" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="js-to" className="text-xs uppercase text-muted-foreground">Hasta</Label>
+                  <Input id="js-to" value={jusTo} onChange={(e) => setJusTo(e.target.value)}
+                    placeholder="11:00" className="font-mono" />
+                </div>
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  Si la ventana cubre la entrada, el sistema no marca tarde. Si cubre la salida,
+                  no marca salida temprana. Si la justificación cuenta como trabajada, esas horas
+                  se suman a las trabajadas reales.
+                </p>
+              </div>
+            )}
           </section>
         )}
 

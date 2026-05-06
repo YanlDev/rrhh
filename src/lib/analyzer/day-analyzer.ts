@@ -24,7 +24,12 @@ export function analyzeDay(args: {
   dayOfWeek: number;
   isHoliday: boolean;
   schedule: Schedule;
-  justified?: { countsAsWorked: boolean } | null;
+  justified?: {
+    countsAsWorked: boolean;
+    /** 'HH:mm' o null/undefined = día completo */
+    fromTime?: string | null;
+    toTime?: string | null;
+  } | null;
 }): DayAnalysis {
   const { punches, dayOfWeek, isHoliday, schedule, justified } = args;
   const incidents: string[] = [];
@@ -48,10 +53,10 @@ export function analyzeDay(args: {
   const sched = isSat ? schedule.saturday : schedule.weekday;
   const startMin = toMin(sched.start);
   const endMin = toMin(sched.end);
-  const limitMin = startMin + schedule.toleranceMinutes;
   const expectedMin = Math.round(sched.hours * 60);
 
-  if (justified) {
+  // Justificación de día completo (sin ventana): comportamiento original.
+  if (justified && !justified.fromTime && !justified.toTime) {
     return {
       status: "justified",
       isWorkday: true,
@@ -65,6 +70,26 @@ export function analyzeDay(args: {
       incidents,
     };
   }
+
+  // Justificación con ventana horaria: ajusta los límites de tarde / salida temprana.
+  let effectiveStart = startMin;
+  let effectiveEnd = endMin;
+  let justifiedWorkedMin = 0;
+
+  if (justified && justified.fromTime && justified.toTime) {
+    const jFrom = toMin(justified.fromTime);
+    const jTo = toMin(justified.toTime);
+    if (jTo > jFrom) {
+      // Si la ventana cubre el inicio del día, el worker puede llegar a `jTo` sin ser tarde.
+      if (jFrom <= startMin && jTo > startMin) effectiveStart = jTo;
+      // Si la ventana cubre el final, el worker puede salir desde `jFrom` sin ser early-leave.
+      if (jTo >= endMin && jFrom < endMin) effectiveEnd = jFrom;
+      // Si la justificación cuenta como trabajada, sumamos sus minutos al worked.
+      if (justified.countsAsWorked) justifiedWorkedMin = jTo - jFrom;
+    }
+  }
+
+  const limitMin = effectiveStart + schedule.toleranceMinutes;
 
   if (punches.length === 0) {
     return {
@@ -135,14 +160,24 @@ export function analyzeDay(args: {
   }
 
   const lateMinutes = Math.max(0, inMin - limitMin);
-  const earlyLeaveMinutes = Math.max(0, endMin - outMin);
+  const earlyLeaveMinutes = Math.max(0, effectiveEnd - outMin);
 
   if (status === "ok" && lateMinutes > 0) status = "late";
 
-  // Horas extras / faltantes — solo para días realmente trabajados (ok / late).
+  // Sumar minutos justificados al worked si aplica.
+  if (workedMinutes != null && justifiedWorkedMin > 0) {
+    workedMinutes += justifiedWorkedMin;
+  }
+
+  // Marcar status=justified si hay ventana de justificación (mantener visibilidad).
+  if (justified && (justified.fromTime || justified.toTime) && status !== "incomplete") {
+    status = "justified";
+  }
+
+  // Horas extras / faltantes — para días trabajados o con justificación parcial.
   let overtimeMinutes = 0;
   let undertimeMinutes = 0;
-  if (workedMinutes != null && (status === "ok" || status === "late")) {
+  if (workedMinutes != null && (status === "ok" || status === "late" || status === "justified")) {
     const diff = workedMinutes - expectedMin;
     if (diff > 0) overtimeMinutes = diff;
     else if (diff < 0) undertimeMinutes = -diff;

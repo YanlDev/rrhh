@@ -17,18 +17,38 @@ export async function listJustificationTypesAction() {
     .orderBy(justificationTypes.orderIndex);
 }
 
+const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+
+function validateWindow(from?: string | null, to?: string | null): string | null {
+  // Ambos vacíos = día completo (válido).
+  if (!from && !to) return null;
+  // Ambos requeridos si uno está presente.
+  if (!from || !to) return "Indica horas desde y hasta para la ventana, o deja ambos vacíos para día completo";
+  if (!HM_RE.test(from) || !HM_RE.test(to)) return "Hora inválida (formato HH:mm)";
+  const [fh, fm] = from.split(":").map(Number);
+  const [th, tm] = to.split(":").map(Number);
+  if (fh * 60 + fm >= th * 60 + tm) return "La hora 'hasta' debe ser mayor que 'desde'";
+  return null;
+}
+
 export async function justifyDayAction(args: {
   attendanceDayId: string;
   justificationTypeId: string;
   note?: string | null;
-}): Promise<{ ok: true }> {
+  fromTime?: string | null;
+  toTime?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireRrhh();
   await ensureMigrated();
+  const err = validateWindow(args.fromTime, args.toTime);
+  if (err) return { ok: false, error: err };
   await db
     .update(attendanceDays)
     .set({
       justificationId: args.justificationTypeId,
       justificationNote: args.note ?? null,
+      justificationFrom: args.fromTime || null,
+      justificationTo: args.toTime || null,
       modifiedAt: new Date(),
     })
     .where(eq(attendanceDays.id, args.attendanceDayId));
@@ -43,7 +63,13 @@ export async function clearJustificationAction(attendanceDayId: string): Promise
   await ensureMigrated();
   await db
     .update(attendanceDays)
-    .set({ justificationId: null, justificationNote: null, modifiedAt: new Date() })
+    .set({
+      justificationId: null,
+      justificationNote: null,
+      justificationFrom: null,
+      justificationTo: null,
+      modifiedAt: new Date(),
+    })
     .where(eq(attendanceDays.id, attendanceDayId));
   await recalcAttendanceDay(attendanceDayId);
   revalidatePath("/review");

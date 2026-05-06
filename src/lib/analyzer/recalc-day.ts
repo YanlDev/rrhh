@@ -58,7 +58,13 @@ async function applyRecalc(row: AttendanceDay, ctx: RecalcContext) {
     dayOfWeek: row.dayOfWeek,
     isHoliday,
     schedule,
-    justified: jus ? { countsAsWorked: jus.countsAsWorked } : null,
+    justified: jus
+      ? {
+          countsAsWorked: jus.countsAsWorked,
+          fromTime: row.justificationFrom,
+          toTime: row.justificationTo,
+        }
+      : null,
   });
   await db
     .update(attendanceDays)
