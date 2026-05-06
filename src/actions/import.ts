@@ -12,7 +12,8 @@ import { parseWorkbookBuffer } from "@/lib/excel/parser";
 import { analyzeDay } from "@/lib/analyzer/day-analyzer";
 import {
   loadAllSchedulePeriods,
-  pickScheduleForDate,
+  loadScheduleOverrides,
+  resolveScheduleForDate,
   getCurrentSchedule,
 } from "@/lib/settings";
 import { inArray, sql } from "drizzle-orm";
@@ -45,8 +46,9 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
   const parsed = parseWorkbookBuffer(buf, file.name, currentSchedule.duplicateThresholdMinutes);
 
   // ---------- Precarga de TODO en pocas queries ----------
-  const [periods, holidayRows, existingEmployees, jusTypes] = await Promise.all([
+  const [periods, overrides, holidayRows, existingEmployees, jusTypes] = await Promise.all([
     loadAllSchedulePeriods(),
+    loadScheduleOverrides(),
     db.select({ holidayDate: holidays.holidayDate }).from(holidays),
     db.select({ id: employees.id, personId: employees.personId }).from(employees),
     db
@@ -142,11 +144,13 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
           : null;
       const effective = corrected ?? d.punches;
 
+      const resolved = resolveScheduleForDate(periods, overrides, d.date);
       const analysis = analyzeDay({
         punches: effective,
         dayOfWeek: d.dayOfWeek,
-        isHoliday: holidaySet.has(d.date),
-        schedule: pickScheduleForDate(periods, d.date),
+        // Si la fecha tiene override, ignora si está en holidays — el override la convierte en workday.
+        isHoliday: resolved.isOverride ? false : holidaySet.has(d.date),
+        schedule: resolved.schedule,
         justified,
       });
       if (["incomplete", "absent"].includes(analysis.status)) incidentsDetected++;

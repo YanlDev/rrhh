@@ -123,8 +123,12 @@ export function analyzeDay(args: {
     }
   } else if (punches.length === 2) {
     workedMinutes = outMin - inMin;
-    if (!isSat) {
-      // L-V con solo 2 marcas: NO salió a almorzar. Acción obligatoria.
+    // 2 marcas es problema solo si el horario del día CONTEMPLA almuerzo.
+    // Sábado o días con override de "trabajo corrido" (lunchMinutes=0) no flaggean.
+    const expectedLunch = isSat
+      ? schedule.saturday.lunchMinutes
+      : schedule.weekday.lunchMinutes;
+    if (!isSat && expectedLunch > 0) {
       incidents.push("no_lunch_break");
       status = "incomplete";
     }

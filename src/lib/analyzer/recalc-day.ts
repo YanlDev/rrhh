@@ -8,25 +8,27 @@ import {
 import { analyzeDay } from "./day-analyzer";
 import {
   loadAllSchedulePeriods,
-  pickScheduleForDate,
+  loadScheduleOverrides,
+  resolveScheduleForDate,
   type Schedule,
 } from "@/lib/settings";
 import { eq, inArray } from "drizzle-orm";
 
 export type RecalcContext = {
-  /** Devuelve el horario aplicable a `workDate`. */
-  scheduleFor: (workDate: string) => Schedule;
+  /** Devuelve `Schedule` + flag `isOverride` para `workDate`. */
+  resolveSchedule: (workDate: string) => { schedule: Schedule; isOverride: boolean };
   holidaySet: Set<string>;
   jusById: Map<string, { countsAsWorked: boolean }>;
 };
 
 /**
- * Carga UNA vez todos los datos auxiliares (periodos de horario, feriados, justificaciones)
- * para evitar 3 queries por cada attendance_day en operaciones batch.
+ * Carga UNA vez todos los datos auxiliares (periodos, overrides, feriados,
+ * justificaciones) para evitar queries por cada attendance_day.
  */
 export async function loadRecalcContext(): Promise<RecalcContext> {
-  const [periods, holidayRows, jusTypes] = await Promise.all([
+  const [periods, overrides, holidayRows, jusTypes] = await Promise.all([
     loadAllSchedulePeriods(),
+    loadScheduleOverrides(),
     db.select({ holidayDate: holidays.holidayDate }).from(holidays),
     db
       .select({
@@ -36,7 +38,8 @@ export async function loadRecalcContext(): Promise<RecalcContext> {
       .from(justificationTypes),
   ]);
   return {
-    scheduleFor: (workDate: string) => pickScheduleForDate(periods, workDate),
+    resolveSchedule: (workDate: string) =>
+      resolveScheduleForDate(periods, overrides, workDate),
     holidaySet: new Set(holidayRows.map((h) => h.holidayDate)),
     jusById: new Map(
       jusTypes.map((j) => [j.id, { countsAsWorked: j.countsAsWorked }])
@@ -47,11 +50,14 @@ export async function loadRecalcContext(): Promise<RecalcContext> {
 async function applyRecalc(row: AttendanceDay, ctx: RecalcContext) {
   const effective = row.correctedPunches ?? row.rawPunches;
   const jus = row.justificationId ? ctx.jusById.get(row.justificationId) ?? null : null;
+  const { schedule, isOverride } = ctx.resolveSchedule(row.workDate);
+  // Si hay override, el día se trata como workday aunque esté en holidays.
+  const isHoliday = isOverride ? false : ctx.holidaySet.has(row.workDate);
   const a = analyzeDay({
     punches: effective,
     dayOfWeek: row.dayOfWeek,
-    isHoliday: ctx.holidaySet.has(row.workDate),
-    schedule: ctx.scheduleFor(row.workDate),
+    isHoliday,
+    schedule,
     justified: jus ? { countsAsWorked: jus.countsAsWorked } : null,
   });
   await db
@@ -73,7 +79,6 @@ async function applyRecalc(row: AttendanceDay, ctx: RecalcContext) {
     .where(eq(attendanceDays.id, row.id));
 }
 
-/** Recalcula UNA fila. Si vas a recalcular muchas, usa `recalcAttendanceDays`. */
 export async function recalcAttendanceDay(rowId: string, ctxArg?: RecalcContext) {
   const ctx = ctxArg ?? (await loadRecalcContext());
   const row = (
@@ -85,7 +90,7 @@ export async function recalcAttendanceDay(rowId: string, ctxArg?: RecalcContext)
 
 /**
  * Recalcula varias filas en paralelo (pipelined). Carga el contexto auxiliar
- * UNA sola vez. Si `ids` está vacío recalcula TODA la tabla.
+ * UNA sola vez. Si `ids === null` recalcula TODA la tabla.
  */
 export async function recalcAttendanceDays(
   ids: string[] | null,

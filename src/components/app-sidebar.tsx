@@ -12,6 +12,7 @@ import {
   CalendarX,
   Clock,
   UserCog,
+  CalendarDays,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -45,6 +46,7 @@ const NAV = [
 type SettingsItem = { href: string; label: string; icon: typeof Clock; adminOnly?: boolean };
 const SETTINGS_ITEMS: SettingsItem[] = [
   { href: "/settings/schedule", label: "Horarios", icon: Clock },
+  { href: "/settings/schedule-overrides", label: "Días especiales", icon: CalendarDays },
   { href: "/settings/justifications", label: "Justificaciones", icon: ShieldCheck },
   { href: "/settings/holidays", label: "Feriados", icon: CalendarX },
   { href: "/settings/users", label: "Usuarios", icon: UserCog, adminOnly: true },

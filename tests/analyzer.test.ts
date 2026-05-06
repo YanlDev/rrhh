@@ -388,6 +388,58 @@ test("Extra · sale a almorzar a las 14:00 (límite tope de la ventana)", () => 
   assert.deepEqual(r.incidents, []);
 });
 
+test("Override · día especial L-V (medio día sin almuerzo)", () => {
+  // Simulamos un Schedule construido a partir de un override:
+  // entrada 08:30, salida 13:00, 4.5h, sin almuerzo.
+  const overrideSchedule = {
+    weekday: { start: "08:30", end: "13:00", hours: 4.5, lunchMinutes: 0 },
+    saturday: { start: "08:30", end: "13:00", hours: 4.5, lunchMinutes: 0 },
+    toleranceMinutes: 5,
+    duplicateThresholdMinutes: 2,
+    minLunchMinutes: 25,
+    lunchWindowStart: "12:00",
+    lunchWindowEnd: "14:00",
+    effectiveFrom: "2026-04-02",
+  };
+  // Trabajador llega 08:30, sale 13:00 (jueves santo "medio día").
+  // isHoliday=false porque el override anula el feriado.
+  const r = analyzeDay({
+    schedule: overrideSchedule,
+    punches: ["08:30", "13:00"],
+    dayOfWeek: 4, // jueves
+    isHoliday: false,
+  });
+  assert.equal(r.status, "ok", "se trata como día normal con horario reducido");
+  assert.equal(r.workedMinutes, 270, "4.5h reales");
+  assert.equal(r.overtimeMinutes, 0);
+  assert.equal(r.undertimeMinutes, 0);
+  assert.deepEqual(r.incidents, [], "2 marcas con lunch=0 esperado: no flaggea no_lunch_break");
+});
+
+test("Override · sale 30 min temprano en día especial (genera early_leave + undertime)", () => {
+  const overrideSchedule = {
+    weekday: { start: "08:30", end: "13:00", hours: 4.5, lunchMinutes: 0 },
+    saturday: { start: "08:30", end: "13:00", hours: 4.5, lunchMinutes: 0 },
+    toleranceMinutes: 5,
+    duplicateThresholdMinutes: 2,
+    minLunchMinutes: 25,
+    lunchWindowStart: "12:00",
+    lunchWindowEnd: "14:00",
+    effectiveFrom: "2026-04-02",
+  };
+  const r = analyzeDay({
+    schedule: overrideSchedule,
+    punches: ["08:30", "12:30"],
+    dayOfWeek: 4,
+    isHoliday: false,
+  });
+  assert.equal(r.status, "ok");
+  // worked = 12:30 − 08:30 = 240 min; expected = 270; under = 30
+  assert.equal(r.workedMinutes, 240);
+  assert.equal(r.earlyLeaveMinutes, 30);
+  assert.equal(r.undertimeMinutes, 30);
+});
+
 test("Extra · sale a almorzar a las 11:30 (FUERA de la ventana 12-14)", () => {
   const r = analyzeDay({
     schedule: SCHED_MAYO,

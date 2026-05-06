@@ -92,6 +92,25 @@ export const holidays = pgTable("holidays", {
   isNational: boolean("is_national").notNull().default(true),
 });
 
+export const scheduleOverrides = pgTable(
+  "schedule_overrides",
+  {
+    workDate: text("work_date").primaryKey(), // 'YYYY-MM-DD'
+    description: text("description").notNull(),
+    startTime: text("start_time").notNull().default("08:30"),
+    endTime: text("end_time").notNull(),
+    hours: real("hours").notNull(),
+    lunchMinutes: integer("lunch_minutes").notNull().default(0),
+    lunchWindowStart: text("lunch_window_start").notNull().default("12:00"),
+    lunchWindowEnd: text("lunch_window_end").notNull().default("14:00"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    dateIdx: index("schedule_overrides_date_idx").on(t.workDate),
+  })
+);
+
 export const schedulePeriods = pgTable(
   "schedule_periods",
   {
@@ -159,6 +178,7 @@ export const sessions = pgTable(
 
 /* =========================== Tipos exportados =========================== */
 export type SchedulePeriod = typeof schedulePeriods.$inferSelect;
+export type ScheduleOverride = typeof scheduleOverrides.$inferSelect;
 export type Employee = typeof employees.$inferSelect;
 export type AttendanceDay = typeof attendanceDays.$inferSelect;
 export type ImportBatch = typeof importBatches.$inferSelect;

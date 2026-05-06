@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Settings as SettingsIcon, Clock, ShieldCheck, CalendarX, ArrowRight, UserCog } from "lucide-react";
+import { Settings as SettingsIcon, Clock, ShieldCheck, CalendarX, ArrowRight, UserCog, CalendarDays } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth-helpers";
 
 const SECTIONS = [
   { href: "/settings/schedule", title: "Horarios", description: "Hora de entrada/salida L-V y sábados, tolerancia, umbral de duplicados.", icon: Clock, adminOnly: false },
+  { href: "/settings/schedule-overrides", title: "Días especiales", description: "Excepciones puntuales al horario regular (ej. medio día por feriado parcial).", icon: CalendarDays, adminOnly: false },
   { href: "/settings/justifications", title: "Justificaciones", description: "Catálogo CRUD de motivos. Cada uno cuenta o no como día trabajado.", icon: ShieldCheck, adminOnly: false },
   { href: "/settings/holidays", title: "Feriados", description: "Días que el sistema no evalúa como laborables.", icon: CalendarX, adminOnly: false },
   { href: "/settings/users", title: "Usuarios", description: "Gestiona quién accede y con qué permisos (Admin / RRHH / Solo lectura).", icon: UserCog, adminOnly: true },

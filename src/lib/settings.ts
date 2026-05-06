@@ -1,5 +1,10 @@
 import { db } from "./db";
-import { schedulePeriods, type SchedulePeriod } from "./db/schema";
+import {
+  schedulePeriods,
+  scheduleOverrides,
+  type SchedulePeriod,
+  type ScheduleOverride,
+} from "./db/schema";
 import { asc } from "drizzle-orm";
 import { cache } from "react";
 
@@ -13,6 +18,9 @@ export type Schedule = {
   lunchWindowEnd: string;
   effectiveFrom: string;
 };
+
+/** Resultado del resolver: schedule + flag de override (si lo hay). */
+export type ResolvedSchedule = { schedule: Schedule; isOverride: boolean };
 
 function periodToSchedule(p: SchedulePeriod): Schedule {
   return {
@@ -37,32 +45,91 @@ function periodToSchedule(p: SchedulePeriod): Schedule {
   };
 }
 
-/** Carga todos los periodos ordenados ascendentes por effectiveFrom (cacheado por request). */
+/**
+ * Construye un Schedule a partir de un override, heredando del periodo base
+ * los valores que no son específicos del día (tolerancia, threshold, almuerzo crítico).
+ * El override define start/end/hours/lunch idénticos para weekday y saturday — el
+ * analyzer usa el lado correcto según `dayOfWeek`, pero ambos lados coinciden.
+ */
+function overrideToSchedule(o: ScheduleOverride, base: SchedulePeriod): Schedule {
+  const slot = {
+    start: o.startTime,
+    end: o.endTime,
+    hours: o.hours,
+    lunchMinutes: o.lunchMinutes,
+  };
+  return {
+    weekday: slot,
+    saturday: slot,
+    toleranceMinutes: base.toleranceMinutes,
+    duplicateThresholdMinutes: base.duplicateThresholdMinutes,
+    minLunchMinutes: base.minLunchMinutes,
+    lunchWindowStart: o.lunchWindowStart,
+    lunchWindowEnd: o.lunchWindowEnd,
+    effectiveFrom: o.workDate,
+  };
+}
+
+/** Periodos ordenados ASC por effectiveFrom (cacheado por request). */
 export const loadAllSchedulePeriods = cache(async (): Promise<SchedulePeriod[]> => {
-  const rows = await db.select().from(schedulePeriods).orderBy(asc(schedulePeriods.effectiveFrom));
-  return rows;
+  return db.select().from(schedulePeriods).orderBy(asc(schedulePeriods.effectiveFrom));
 });
 
-/** Selector: dado un workDate ('YYYY-MM-DD'), elige el último periodo con effectiveFrom <= workDate. */
-export function pickScheduleForDate(periods: SchedulePeriod[], workDate: string): Schedule {
+/** Overrides cacheados por request, devueltos como Map por work_date. */
+export const loadScheduleOverrides = cache(
+  async (): Promise<Map<string, ScheduleOverride>> => {
+    const rows = await db.select().from(scheduleOverrides);
+    return new Map(rows.map((r) => [r.workDate, r]));
+  }
+);
+
+function pickPeriodForDate(
+  periods: SchedulePeriod[],
+  workDate: string
+): SchedulePeriod {
   if (periods.length === 0) {
     throw new Error("No hay periodos de horario configurados");
   }
-  // periods viene ASC. Recorrer al revés y devolver el primero <= workDate.
   for (let i = periods.length - 1; i >= 0; i--) {
-    if (periods[i].effectiveFrom <= workDate) return periodToSchedule(periods[i]);
+    if (periods[i].effectiveFrom <= workDate) return periods[i];
   }
-  // Si workDate es anterior a todos, usar el más antiguo (mejor que crashear).
-  return periodToSchedule(periods[0]);
+  return periods[0];
 }
 
-/** Conveniencia: una sola llamada para una fecha. */
+/**
+ * Resolver: dado un workDate, devuelve el schedule aplicable
+ * (override si existe, sino el periodo correspondiente) y un flag.
+ */
+export function resolveScheduleForDate(
+  periods: SchedulePeriod[],
+  overrides: Map<string, ScheduleOverride>,
+  workDate: string
+): ResolvedSchedule {
+  const ov = overrides.get(workDate);
+  const basePeriod = pickPeriodForDate(periods, workDate);
+  if (ov) return { schedule: overrideToSchedule(ov, basePeriod), isOverride: true };
+  return { schedule: periodToSchedule(basePeriod), isOverride: false };
+}
+
+/** Backwards compatible: devuelve solo el Schedule (sin flag de override). */
+export function pickScheduleForDate(
+  periods: SchedulePeriod[],
+  workDate: string,
+  overrides?: Map<string, ScheduleOverride>
+): Schedule {
+  return resolveScheduleForDate(periods, overrides ?? new Map(), workDate).schedule;
+}
+
+/** Conveniencia: una sola llamada para una fecha (consulta BD). */
 export async function getScheduleFor(workDate: string): Promise<Schedule> {
-  const periods = await loadAllSchedulePeriods();
-  return pickScheduleForDate(periods, workDate);
+  const [periods, overrides] = await Promise.all([
+    loadAllSchedulePeriods(),
+    loadScheduleOverrides(),
+  ]);
+  return resolveScheduleForDate(periods, overrides, workDate).schedule;
 }
 
-/** Conveniencia para flujos sin fecha (parser de Excel): usa el periodo más reciente. */
+/** Para flujos sin fecha (parser de Excel): usa el periodo más reciente. */
 export async function getCurrentSchedule(): Promise<Schedule> {
   const periods = await loadAllSchedulePeriods();
   if (periods.length === 0) throw new Error("No hay periodos de horario configurados");
