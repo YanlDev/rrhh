@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, X } from "lucide-react";
 import Link from "next/link";
+import { CleanInactiveButton } from "@/components/clean-inactive-button";
+import { getCurrentUser } from "@/lib/auth-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,7 @@ export default async function EmployeesPage({
   searchParams: Promise<{ period?: string; dept?: string; q?: string }>;
 }) {
   await ensureMigrated();
+  const me = await getCurrentUser();
   const sp = await searchParams;
   const period = await resolvePeriod(sp);
   const periods = await listAvailablePeriods();
@@ -132,8 +135,9 @@ export default async function EmployeesPage({
 
       {inactive.length > 0 && (
         <Card className="opacity-80">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Sin actividad ({inactive.length})</CardTitle>
+            {me?.role === "admin" && <CleanInactiveButton count={inactive.length} />}
           </CardHeader>
           <CardContent className="p-0">
             <Table>

@@ -6,7 +6,6 @@ import {
   ClipboardCheck,
   Users,
   Settings,
-  ClockIcon,
   FileDown,
   ChevronRight,
   ShieldCheck,
@@ -61,12 +60,9 @@ export function AppSidebar({ role }: { role: "admin" | "rrhh" | "viewer" }) {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-1.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <ClockIcon className="size-4" />
-          </div>
           <div className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
-            <span className="text-sm font-semibold">Asistencia</span>
-            <span className="text-xs text-muted-foreground">ZKBio · ZLink</span>
+            <span className="text-sm font-semibold">Sistema de Reportes</span>
+            <span className="text-xs text-muted-foreground">RRHH</span>
           </div>
         </div>
       </SidebarHeader>
@@ -124,8 +120,16 @@ export function AppSidebar({ role }: { role: "admin" | "rrhh" | "viewer" }) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <div className="px-2 py-1 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
-          v0.2 · Supabase
+        <div className="px-2 py-2 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+          Creado por{" "}
+          <a
+            href="https://www.linkedin.com/in/yaniv-carreon/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-blue-600 hover:underline"
+          >
+            YanlDev
+          </a>
         </div>
       </SidebarFooter>
       <SidebarRail />
