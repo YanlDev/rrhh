@@ -1,28 +1,59 @@
 import { db } from "@/lib/db";
-import { attendanceDays, holidays, justificationTypes } from "@/lib/db/schema";
+import {
+  attendanceDays,
+  holidays,
+  justificationTypes,
+  type AttendanceDay,
+} from "@/lib/db/schema";
 import { analyzeDay } from "./day-analyzer";
-import { getSchedule, type Schedule } from "@/lib/settings";
-import { eq } from "drizzle-orm";
+import {
+  loadAllSchedulePeriods,
+  pickScheduleForDate,
+  type Schedule,
+} from "@/lib/settings";
+import { eq, inArray } from "drizzle-orm";
 
-export async function recalcAttendanceDay(rowId: string, scheduleArg?: Schedule) {
-  const row = (await db.select().from(attendanceDays).where(eq(attendanceDays.id, rowId)))[0];
-  if (!row) throw new Error(`attendance_day no existe: ${rowId}`);
+export type RecalcContext = {
+  /** Devuelve el horario aplicable a `workDate`. */
+  scheduleFor: (workDate: string) => Schedule;
+  holidaySet: Set<string>;
+  jusById: Map<string, { countsAsWorked: boolean }>;
+};
 
-  const schedule = scheduleArg ?? (await getSchedule());
-  const isHoliday = !!(await db.select().from(holidays).where(eq(holidays.holidayDate, row.workDate)))[0];
-  const jus = row.justificationId
-    ? (await db.select().from(justificationTypes).where(eq(justificationTypes.id, row.justificationId)))[0]
-    : null;
+/**
+ * Carga UNA vez todos los datos auxiliares (periodos de horario, feriados, justificaciones)
+ * para evitar 3 queries por cada attendance_day en operaciones batch.
+ */
+export async function loadRecalcContext(): Promise<RecalcContext> {
+  const [periods, holidayRows, jusTypes] = await Promise.all([
+    loadAllSchedulePeriods(),
+    db.select({ holidayDate: holidays.holidayDate }).from(holidays),
+    db
+      .select({
+        id: justificationTypes.id,
+        countsAsWorked: justificationTypes.countsAsWorked,
+      })
+      .from(justificationTypes),
+  ]);
+  return {
+    scheduleFor: (workDate: string) => pickScheduleForDate(periods, workDate),
+    holidaySet: new Set(holidayRows.map((h) => h.holidayDate)),
+    jusById: new Map(
+      jusTypes.map((j) => [j.id, { countsAsWorked: j.countsAsWorked }])
+    ),
+  };
+}
 
+async function applyRecalc(row: AttendanceDay, ctx: RecalcContext) {
   const effective = row.correctedPunches ?? row.rawPunches;
+  const jus = row.justificationId ? ctx.jusById.get(row.justificationId) ?? null : null;
   const a = analyzeDay({
     punches: effective,
     dayOfWeek: row.dayOfWeek,
-    isHoliday,
-    schedule,
+    isHoliday: ctx.holidaySet.has(row.workDate),
+    schedule: ctx.scheduleFor(row.workDate),
     justified: jus ? { countsAsWorked: jus.countsAsWorked } : null,
   });
-
   await db
     .update(attendanceDays)
     .set({
@@ -34,8 +65,43 @@ export async function recalcAttendanceDay(rowId: string, scheduleArg?: Schedule)
       workedMinutes: a.workedMinutes,
       lateMinutes: a.lateMinutes,
       earlyLeaveMinutes: a.earlyLeaveMinutes,
+      overtimeMinutes: a.overtimeMinutes,
+      undertimeMinutes: a.undertimeMinutes,
       incidents: a.incidents,
       modifiedAt: new Date(),
     })
-    .where(eq(attendanceDays.id, rowId));
+    .where(eq(attendanceDays.id, row.id));
+}
+
+/** Recalcula UNA fila. Si vas a recalcular muchas, usa `recalcAttendanceDays`. */
+export async function recalcAttendanceDay(rowId: string, ctxArg?: RecalcContext) {
+  const ctx = ctxArg ?? (await loadRecalcContext());
+  const row = (
+    await db.select().from(attendanceDays).where(eq(attendanceDays.id, rowId))
+  )[0];
+  if (!row) throw new Error(`attendance_day no existe: ${rowId}`);
+  await applyRecalc(row, ctx);
+}
+
+/**
+ * Recalcula varias filas en paralelo (pipelined). Carga el contexto auxiliar
+ * UNA sola vez. Si `ids` está vacío recalcula TODA la tabla.
+ */
+export async function recalcAttendanceDays(
+  ids: string[] | null,
+  ctxArg?: RecalcContext
+): Promise<number> {
+  const ctx = ctxArg ?? (await loadRecalcContext());
+  const rows =
+    ids === null
+      ? await db.select().from(attendanceDays)
+      : ids.length === 0
+        ? []
+        : await db.select().from(attendanceDays).where(inArray(attendanceDays.id, ids));
+  if (rows.length === 0) return 0;
+  const CHUNK = 25;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    await Promise.all(rows.slice(i, i + CHUNK).map((r) => applyRecalc(r, ctx)));
+  }
+  return rows.length;
 }

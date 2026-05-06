@@ -1,11 +1,21 @@
 "use server";
 
 import { db, ensureMigrated } from "@/lib/db";
-import { employees, attendanceDays, importBatches, holidays } from "@/lib/db/schema";
+import {
+  employees,
+  attendanceDays,
+  importBatches,
+  holidays,
+  justificationTypes,
+} from "@/lib/db/schema";
 import { parseWorkbookBuffer } from "@/lib/excel/parser";
 import { analyzeDay } from "@/lib/analyzer/day-analyzer";
-import { getSchedule } from "@/lib/settings";
-import { eq, and } from "drizzle-orm";
+import {
+  loadAllSchedulePeriods,
+  pickScheduleForDate,
+  getCurrentSchedule,
+} from "@/lib/settings";
+import { inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireRrhh } from "@/lib/auth-helpers";
 
@@ -25,132 +35,178 @@ export type ImportResult = {
 export async function importExcelAction(formData: FormData): Promise<ImportResult> {
   await requireRrhh();
   await ensureMigrated();
+
   const file = formData.get("file") as File | null;
   if (!file) throw new Error("No se recibió archivo");
   const buf = Buffer.from(await file.arrayBuffer());
-  const schedule = await getSchedule();
-  const parsed = parseWorkbookBuffer(buf, file.name, schedule.duplicateThresholdMinutes);
 
-  const holidayRows = await db.select().from(holidays);
+  // Para limpiar duplicados al parsear usamos el horario más reciente (criterio uniforme).
+  const currentSchedule = await getCurrentSchedule();
+  const parsed = parseWorkbookBuffer(buf, file.name, currentSchedule.duplicateThresholdMinutes);
+
+  // ---------- Precarga de TODO en pocas queries ----------
+  const [periods, holidayRows, existingEmployees, jusTypes] = await Promise.all([
+    loadAllSchedulePeriods(),
+    db.select({ holidayDate: holidays.holidayDate }).from(holidays),
+    db.select({ id: employees.id, personId: employees.personId }).from(employees),
+    db
+      .select({
+        id: justificationTypes.id,
+        countsAsWorked: justificationTypes.countsAsWorked,
+      })
+      .from(justificationTypes),
+  ]);
   const holidaySet = new Set(holidayRows.map((h) => h.holidayDate));
+  const existingEmpIdByPersonId = new Map(existingEmployees.map((e) => [e.personId, e.id]));
+  const jusById = new Map(jusTypes.map((j) => [j.id, j.countsAsWorked]));
 
-  let employeesUpserted = 0;
-  let inactiveCount = 0;
-  let daysUpserted = 0;
-  let incidentsDetected = 0;
-  let preservedCorrections = 0;
-
+  // ---------- Insert del batch (auditoría) ----------
+  const inactiveCount = parsed.employees.filter((e) => e.totalPunches === 0).length;
   await db.insert(importBatches).values({
     filename: parsed.filename,
     periodStart: parsed.periodStart,
     periodEnd: parsed.periodEnd,
     totalRows: parsed.employees.length,
-    employeesCount: parsed.employees.filter((e) => e.totalPunches > 0).length,
+    employeesCount: parsed.employees.length - inactiveCount,
     daysCount: parsed.employees.reduce((s, e) => s + e.days.length, 0),
-    rawSnapshot: JSON.stringify({ warnings: parsed.warnings }),
+    rawSnapshot: { warnings: parsed.warnings },
   });
 
-  for (const emp of parsed.employees) {
-    const isActive = emp.totalPunches > 0;
-    if (!isActive) inactiveCount++;
+  // ---------- Upsert de employees en UN solo INSERT ... ON CONFLICT ----------
+  const empValues = parsed.employees.map((emp) => ({
+    id: existingEmpIdByPersonId.get(emp.personId) ?? crypto.randomUUID(),
+    personId: emp.personId,
+    name: emp.name,
+    department: emp.department,
+    active: emp.totalPunches > 0,
+    lastSeenAt: new Date(),
+  }));
 
-    const existing = (
-      await db.select().from(employees).where(eq(employees.personId, emp.personId))
-    )[0];
+  const upsertedEmps = await db
+    .insert(employees)
+    .values(empValues)
+    .onConflictDoUpdate({
+      target: employees.personId,
+      set: {
+        name: sql`EXCLUDED.name`,
+        department: sql`EXCLUDED.department`,
+        active: sql`EXCLUDED.active`,
+        lastSeenAt: sql`EXCLUDED.last_seen_at`,
+      },
+    })
+    .returning({ id: employees.id, personId: employees.personId });
 
-    let employeeId: string;
-    if (existing) {
-      await db
-        .update(employees)
-        .set({
-          name: emp.name,
-          department: emp.department,
-          active: isActive,
-          lastSeenAt: new Date(),
+  const empIdByPersonId = new Map(upsertedEmps.map((e) => [e.personId, e.id]));
+  const employeesUpserted = upsertedEmps.length;
+
+  // ---------- Precargar TODOS los attendance_days afectados (1 query) ----------
+  const activeEmpIds = parsed.employees
+    .filter((e) => e.totalPunches > 0)
+    .map((e) => empIdByPersonId.get(e.personId)!)
+    .filter(Boolean);
+
+  const existingDays = activeEmpIds.length
+    ? await db
+        .select({
+          id: attendanceDays.id,
+          employeeId: attendanceDays.employeeId,
+          workDate: attendanceDays.workDate,
+          correctedPunches: attendanceDays.correctedPunches,
+          justificationId: attendanceDays.justificationId,
+          justificationNote: attendanceDays.justificationNote,
         })
-        .where(eq(employees.id, existing.id));
-      employeeId = existing.id;
-    } else {
-      const id = crypto.randomUUID();
-      await db.insert(employees).values({
-        id,
-        personId: emp.personId,
-        name: emp.name,
-        department: emp.department,
-        active: isActive,
-      });
-      employeeId = id;
-    }
-    employeesUpserted++;
+        .from(attendanceDays)
+        .where(inArray(attendanceDays.employeeId, activeEmpIds))
+    : [];
 
-    if (!isActive) continue;
+  const existingByKey = new Map(
+    existingDays.map((d) => [`${d.employeeId}|${d.workDate}`, d])
+  );
+
+  // ---------- Construir todas las filas en memoria ----------
+  const dayRows: (typeof attendanceDays.$inferInsert)[] = [];
+  let incidentsDetected = 0;
+  let preservedCorrections = 0;
+
+  for (const emp of parsed.employees) {
+    if (emp.totalPunches === 0) continue;
+    const empId = empIdByPersonId.get(emp.personId);
+    if (!empId) continue;
 
     for (const d of emp.days) {
-      const existingDay = (
-        await db
-          .select()
-          .from(attendanceDays)
-          .where(
-            and(eq(attendanceDays.employeeId, employeeId), eq(attendanceDays.workDate, d.date))
-          )
-      )[0];
-
-      const isHoliday = holidaySet.has(d.date);
-      const corrected = existingDay?.correctedPunches ?? null;
-      const justified = existingDay?.justificationId ? { countsAsWorked: true } : null;
+      const existing = existingByKey.get(`${empId}|${d.date}`);
+      const corrected = existing?.correctedPunches ?? null;
+      const justified =
+        existing?.justificationId
+          ? { countsAsWorked: jusById.get(existing.justificationId) ?? true }
+          : null;
       const effective = corrected ?? d.punches;
+
       const analysis = analyzeDay({
         punches: effective,
         dayOfWeek: d.dayOfWeek,
-        isHoliday,
-        schedule,
+        isHoliday: holidaySet.has(d.date),
+        schedule: pickScheduleForDate(periods, d.date),
         justified,
       });
       if (["incomplete", "absent"].includes(analysis.status)) incidentsDetected++;
+      if (corrected) preservedCorrections++;
 
-      if (existingDay) {
-        if (corrected) preservedCorrections++;
-        await db
-          .update(attendanceDays)
-          .set({
-            rawPunches: d.punches,
-            dayOfWeek: d.dayOfWeek,
-            isWorkday: analysis.isWorkday,
-            effectivePunches: effective,
-            status: analysis.status,
-            checkIn: analysis.checkIn,
-            checkOut: analysis.checkOut,
-            workedMinutes: analysis.workedMinutes,
-            lateMinutes: analysis.lateMinutes,
-            earlyLeaveMinutes: analysis.earlyLeaveMinutes,
-            incidents: analysis.incidents,
-            modifiedAt: new Date(),
-          })
-          .where(eq(attendanceDays.id, existingDay.id));
-      } else {
-        await db.insert(attendanceDays).values({
-          employeeId,
-          workDate: d.date,
-          dayOfWeek: d.dayOfWeek,
-          isWorkday: analysis.isWorkday,
-          rawPunches: d.punches,
-          effectivePunches: effective,
-          status: analysis.status,
-          checkIn: analysis.checkIn,
-          checkOut: analysis.checkOut,
-          workedMinutes: analysis.workedMinutes,
-          lateMinutes: analysis.lateMinutes,
-          earlyLeaveMinutes: analysis.earlyLeaveMinutes,
-          incidents: analysis.incidents,
-        });
-      }
-      daysUpserted++;
+      dayRows.push({
+        employeeId: empId,
+        workDate: d.date,
+        dayOfWeek: d.dayOfWeek,
+        isWorkday: analysis.isWorkday,
+        rawPunches: d.punches,
+        correctedPunches: corrected,
+        justificationId: existing?.justificationId ?? null,
+        justificationNote: existing?.justificationNote ?? null,
+        effectivePunches: effective,
+        status: analysis.status,
+        checkIn: analysis.checkIn,
+        checkOut: analysis.checkOut,
+        workedMinutes: analysis.workedMinutes,
+        lateMinutes: analysis.lateMinutes,
+        earlyLeaveMinutes: analysis.earlyLeaveMinutes,
+        overtimeMinutes: analysis.overtimeMinutes,
+        undertimeMinutes: analysis.undertimeMinutes,
+        incidents: analysis.incidents,
+        modifiedAt: new Date(),
+      });
     }
+  }
+
+  // ---------- Upsert masivo de attendance_days en chunks ----------
+  const CHUNK = 500;
+  for (let i = 0; i < dayRows.length; i += CHUNK) {
+    await db
+      .insert(attendanceDays)
+      .values(dayRows.slice(i, i + CHUNK))
+      .onConflictDoUpdate({
+        target: [attendanceDays.employeeId, attendanceDays.workDate],
+        set: {
+          rawPunches: sql`EXCLUDED.raw_punches`,
+          dayOfWeek: sql`EXCLUDED.day_of_week`,
+          isWorkday: sql`EXCLUDED.is_workday`,
+          effectivePunches: sql`EXCLUDED.effective_punches`,
+          status: sql`EXCLUDED.status`,
+          checkIn: sql`EXCLUDED.check_in`,
+          checkOut: sql`EXCLUDED.check_out`,
+          workedMinutes: sql`EXCLUDED.worked_minutes`,
+          lateMinutes: sql`EXCLUDED.late_minutes`,
+          earlyLeaveMinutes: sql`EXCLUDED.early_leave_minutes`,
+          overtimeMinutes: sql`EXCLUDED.overtime_minutes`,
+          undertimeMinutes: sql`EXCLUDED.undertime_minutes`,
+          incidents: sql`EXCLUDED.incidents`,
+          modifiedAt: sql`now()`,
+        },
+      });
   }
 
   revalidatePath("/");
   revalidatePath("/employees");
   revalidatePath("/review");
+  revalidatePath("/import");
 
   return {
     ok: true,
@@ -159,7 +215,7 @@ export async function importExcelAction(formData: FormData): Promise<ImportResul
     periodEnd: parsed.periodEnd,
     employeesUpserted,
     inactiveCount,
-    daysUpserted,
+    daysUpserted: dayRows.length,
     incidentsDetected,
     preservedCorrections,
     warnings: parsed.warnings,

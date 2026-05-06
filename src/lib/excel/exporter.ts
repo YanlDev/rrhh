@@ -276,7 +276,9 @@ export async function exportDailyDetail(period: Period): Promise<{ buffer: Buffe
       date: attendanceDays.workDate, dow: attendanceDays.dayOfWeek,
       punches: attendanceDays.effectivePunches, status: attendanceDays.status,
       worked: attendanceDays.workedMinutes, late: attendanceDays.lateMinutes,
-      early: attendanceDays.earlyLeaveMinutes, note: attendanceDays.justificationNote,
+      early: attendanceDays.earlyLeaveMinutes,
+      overtime: attendanceDays.overtimeMinutes, undertime: attendanceDays.undertimeMinutes,
+      note: attendanceDays.justificationNote,
       jusCode: justificationTypes.code,
     })
     .from(attendanceDays)
@@ -287,7 +289,7 @@ export async function exportDailyDetail(period: Period): Promise<{ buffer: Buffe
 
   const wb = newWorkbook(period);
   const ws = wb.addWorksheet("Detalle diario");
-  titleBlock(ws, "Detalle diario por empleado", `${period.label} · ${rows.length} registros`, 15);
+  titleBlock(ws, "Detalle diario por empleado", `${period.label} · ${rows.length} registros`, 17);
 
   const data = rows.map((r) => {
     const p = r.punches ?? [];
@@ -295,7 +297,7 @@ export async function exportDailyDetail(period: Period): Promise<{ buffer: Buffe
       r.empName, r.empDept ?? "", r.empId, r.date, DOW_FULL[r.dow],
       p[0] ?? "", p[1] ?? "", p[2] ?? "", p[3] ?? "",
       r.worked != null ? Number((r.worked / 60).toFixed(2)) : null,
-      r.late, r.early, r.status, r.jusCode ?? "", r.note ?? "",
+      r.late, r.early, r.overtime, r.undertime, r.status, r.jusCode ?? "", r.note ?? "",
     ];
   });
 
@@ -313,6 +315,8 @@ export async function exportDailyDetail(period: Period): Promise<{ buffer: Buffe
       { label: "Horas trab.", width: 12, align: "right", numFmt: "0.00" },
       { label: "Min. tarde", width: 11, align: "right", numFmt: "0" },
       { label: "Min. salida temp.", width: 14, align: "right", numFmt: "0" },
+      { label: "Min. extras", width: 11, align: "right", numFmt: "0" },
+      { label: "Min. faltantes", width: 12, align: "right", numFmt: "0" },
       { label: "Estado", width: 16, align: "center" },
       { label: "Justificación", width: 16 },
       { label: "Nota", width: 28 },
@@ -321,7 +325,7 @@ export async function exportDailyDetail(period: Period): Promise<{ buffer: Buffe
     { tableName: "DetalleDiario" },
   );
 
-  paintStatusColumn(ws, t.dataStartIdx, t.lastRow, 13);
+  paintStatusColumn(ws, t.dataStartIdx, t.lastRow, 15);
   ws.views = [{ state: "frozen", ySplit: t.headerRowIdx, xSplit: 1 }];
 
   return { buffer: await workbookToBuffer(wb), filename: `detalle_diario_${periodSlug(period)}.xlsx` };
@@ -335,12 +339,14 @@ export async function exportEmployeeSummary(period: Period): Promise<{ buffer: B
       worked: sql<number>`COALESCE(SUM(${attendanceDays.workedMinutes}), 0)`,
       late: sql<number>`COALESCE(SUM(${attendanceDays.lateMinutes}), 0)`,
       early: sql<number>`COALESCE(SUM(${attendanceDays.earlyLeaveMinutes}), 0)`,
+      overtime: sql<number>`COALESCE(SUM(${attendanceDays.overtimeMinutes}), 0)`,
+      undertime: sql<number>`COALESCE(SUM(${attendanceDays.undertimeMinutes}), 0)`,
       lateDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'late' THEN 1 END)`,
       absDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'absent' THEN 1 END)`,
       incDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'incomplete' THEN 1 END)`,
       jusDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'justified' THEN 1 END)`,
       okDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} IN ('ok','late') THEN 1 END)`,
-      workdays: sql<number>`COUNT(CASE WHEN ${attendanceDays.isWorkday} = 1 THEN 1 END)`,
+      workdays: sql<number>`COUNT(CASE WHEN ${attendanceDays.isWorkday} = TRUE THEN 1 END)`,
       saturdays: sql<number>`COUNT(CASE WHEN ${attendanceDays.dayOfWeek} = 6 AND ${attendanceDays.status} IN ('ok','late','justified') THEN 1 END)`,
     })
     .from(attendanceDays)
@@ -357,14 +363,16 @@ export async function exportEmployeeSummary(period: Period): Promise<{ buffer: B
       r.name, r.dept ?? "", r.personId,
       Number(r.okDays), Number(r.absDays), Number(r.jusDays), Number(r.incDays),
       Number((Number(r.worked) / 60).toFixed(2)),
-      Number(r.late), Number(r.early), Number(r.lateDays), Number(r.saturdays),
+      Number(r.late), Number(r.early),
+      Number(r.overtime), Number(r.undertime),
+      Number(r.lateDays), Number(r.saturdays),
       pct / 100, // store as fraction so % format displays correctly
     ];
   });
 
   const wb = newWorkbook(period);
   const ws = wb.addWorksheet("Por empleado");
-  titleBlock(ws, "Resumen por empleado", `${period.label} · ${rows.length} empleados activos`, 13);
+  titleBlock(ws, "Resumen por empleado", `${period.label} · ${rows.length} empleados activos`, 15);
 
   const t = styledTable(ws, 4,
     [
@@ -378,6 +386,8 @@ export async function exportEmployeeSummary(period: Period): Promise<{ buffer: B
       { label: "Total horas", width: 12, align: "right", numFmt: "0.00" },
       { label: "Min. tarde", width: 11, align: "right" },
       { label: "Min. salida temp.", width: 14, align: "right" },
+      { label: "Min. extras", width: 11, align: "right" },
+      { label: "Min. faltantes", width: 12, align: "right" },
       { label: "Tardanzas", width: 11, align: "right" },
       { label: "Sábados asistidos", width: 14, align: "right" },
       { label: "% asistencia", width: 12, align: "right", numFmt: "0%" },
@@ -392,7 +402,7 @@ export async function exportEmployeeSummary(period: Period): Promise<{ buffer: B
     ref: `${horasCol}${t.dataStartIdx}:${horasCol}${t.lastRow}`,
     rules: [{ type: "dataBar", priority: 1, cfvo: [{ type: "min" }, { type: "max" }], gradient: true, color: { argb: "FF60A5FA" } } as never],
   });
-  const pctCol = "M";
+  const pctCol = "O";
   ws.addConditionalFormatting({
     ref: `${pctCol}${t.dataStartIdx}:${pctCol}${t.lastRow}`,
     rules: [{
@@ -419,7 +429,7 @@ export async function exportDepartmentSummary(period: Period): Promise<{ buffer:
       absDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'absent' THEN 1 END)`,
       jusDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'justified' THEN 1 END)`,
       okDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} IN ('ok','late') THEN 1 END)`,
-      workdays: sql<number>`COUNT(CASE WHEN ${attendanceDays.isWorkday} = 1 THEN 1 END)`,
+      workdays: sql<number>`COUNT(CASE WHEN ${attendanceDays.isWorkday} = TRUE THEN 1 END)`,
     })
     .from(attendanceDays)
     .innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
@@ -481,7 +491,25 @@ export async function exportDepartmentSummary(period: Period): Promise<{ buffer:
   return { buffer: await workbookToBuffer(wb), filename: `resumen_departamentos_${periodSlug(period)}.xlsx` };
 }
 
-/* ============================ 8.5 Incidencias CSV ============================ */
+/* ============================ 8.5 Incidencias pendientes ============================ */
+const INCIDENT_LABELS: Record<string, string> = {
+  no_punches: "Sin marcas",
+  single_punch: "Solo una marca",
+  odd_punches_3: "3 marcas (incompleto)",
+  too_many_punches: "Marcas duplicadas (5+)",
+  only_2_punches_weekday: "Solo 2 marcas (sin almuerzo)",
+  no_lunch_break: "No salió a almorzar",
+  lunch_too_short: "Almuerzo más corto que el requerido",
+  lunch_too_long: "Almuerzo más largo que el requerido",
+  lunch_critically_short: "Almuerzo críticamente corto",
+  lunch_outside_window: "Salió a almorzar fuera de la ventana",
+};
+
+function labelIncidents(codes: string[] | null | undefined): string {
+  if (!codes || codes.length === 0) return "";
+  return codes.map((c) => INCIDENT_LABELS[c] ?? c).join(" · ");
+}
+
 export async function exportIncidentsCsv(period: Period): Promise<{ buffer: Buffer; filename: string }> {
   const rows = await db
     .select({
@@ -492,23 +520,70 @@ export async function exportIncidentsCsv(period: Period): Promise<{ buffer: Buff
     })
     .from(attendanceDays)
     .innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
-    .where(and(inP(period), sql`${attendanceDays.status} IN ('incomplete','absent')`))
+    .where(
+      and(
+        inP(period),
+        // Incompleto/ausente, o cualquier día con incidentes (incluye lunch_too_short).
+        sql`(${attendanceDays.status} IN ('incomplete','absent') OR jsonb_array_length(${attendanceDays.incidents}) > 0)`
+      )
+    )
     .orderBy(asc(attendanceDays.workDate), asc(employees.name));
 
-  const header = ["Fecha", "Día", "Empleado", "Depto", "ID", "Estado", "Marcas", "Problemas", "Min. tarde"];
-  const body: (string | number)[][] = rows.map((r) => [
-    r.date, DOW_FULL[r.dow], r.empName, r.empDept ?? "", r.empId,
-    r.status, (r.punches ?? []).join(" / "), (r.incidents ?? []).join(", "), r.lateMin,
-  ]);
+  const wb = newWorkbook(period);
+  const ws = wb.addWorksheet("Incidencias");
+  titleBlock(
+    ws,
+    "Incidencias pendientes",
+    `${period.label} · ${rows.length} día(s) por revisar`,
+    9,
+  );
 
-  const csv = [header, ...body]
-    .map((row) => row.map((c) => {
-      const s = String(c ?? "");
-      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    }).join(","))
-    .join("\n");
+  const data = rows.map((r) => {
+    const p = r.punches ?? [];
+    return [
+      r.date,
+      DOW_FULL[r.dow],
+      r.empName,
+      r.empDept ?? "",
+      r.empId,
+      p[0] ?? "",
+      p[1] ?? "",
+      p[2] ?? "",
+      p[3] ?? "",
+      r.status,
+      labelIncidents(r.incidents),
+      r.lateMin,
+    ];
+  });
 
-  return { buffer: Buffer.from("﻿" + csv, "utf8"), filename: `incidencias_${periodSlug(period)}.csv` };
+  const t = styledTable(
+    ws,
+    4,
+    [
+      { label: "Fecha", width: 12, align: "center" },
+      { label: "Día", width: 12 },
+      { label: "Empleado", width: 32 },
+      { label: "Depto", width: 18 },
+      { label: "ID", width: 12 },
+      { label: "Entrada", width: 10, align: "center" },
+      { label: "Salida alm.", width: 12, align: "center" },
+      { label: "Retorno alm.", width: 12, align: "center" },
+      { label: "Salida", width: 10, align: "center" },
+      { label: "Estado", width: 16, align: "center" },
+      { label: "Problemas", width: 36 },
+      { label: "Min. tarde", width: 11, align: "right", numFmt: "0" },
+    ],
+    data,
+    { tableName: "Incidencias", styleName: "TableStyleMedium4" },
+  );
+
+  paintStatusColumn(ws, t.dataStartIdx, t.lastRow, 10);
+  ws.views = [{ state: "frozen", ySplit: t.headerRowIdx, xSplit: 3 }];
+
+  return {
+    buffer: await workbookToBuffer(wb),
+    filename: `incidencias_${periodSlug(period)}.xlsx`,
+  };
 }
 
 /* ============================ 8.1 Reporte Ejecutivo ============================ */
@@ -523,7 +598,7 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
     db.select({ n: sql<number>`COUNT(*)` }).from(attendanceDays).where(and(inP(period), eq(attendanceDays.status, "justified"))),
     db.select({
       present: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} IN ('ok','late','justified') THEN 1 END)`,
-      workdays: sql<number>`COUNT(CASE WHEN ${attendanceDays.isWorkday} = 1 THEN 1 END)`,
+      workdays: sql<number>`COUNT(CASE WHEN ${attendanceDays.isWorkday} = TRUE THEN 1 END)`,
     }).from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
       .where(and(inP(period), eq(employees.active, true))),
   ]);

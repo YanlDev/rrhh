@@ -1,19 +1,16 @@
-import { db, ensureMigrated } from "@/lib/db";
-import { users } from "@/lib/db/schema";
-import { asc } from "drizzle-orm";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRoleOrRedirect } from "@/lib/auth-helpers";
+import { listUsersAction } from "@/actions/users";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UserCog, ArrowLeft, Shield, ShieldCheck, Eye } from "lucide-react";
 import Link from "next/link";
-import { UsersTable } from "@/components/users-table";
+import { UsersPanel } from "@/components/users-panel";
 
 export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
-  const me = await requireAdmin();
-  await ensureMigrated();
-  const rows = await db.select().from(users).orderBy(asc(users.createdAt));
+  const me = await requireRoleOrRedirect("admin");
+  const rows = await listUsersAction();
 
   return (
     <div className="space-y-6">
@@ -25,7 +22,7 @@ export default async function UsersPage() {
           <UserCog className="size-5" /> Usuarios y permisos
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Gestiona quién puede acceder y con qué nivel de permiso.
+          Invita usuarios, asigna roles y administra accesos.
         </p>
       </div>
 
@@ -57,22 +54,7 @@ export default async function UsersPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{rows.length} usuario(s) registrado(s)</CardTitle>
-          <CardDescription>Los usuarios se crean automáticamente al iniciar sesión con Google por primera vez.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <UsersTable
-            currentUserId={me.id}
-            rows={rows.map((r) => ({
-              id: r.id, name: r.name, email: r.email, image: r.image,
-              role: r.role, active: r.active,
-              createdAt: r.createdAt ? Math.floor(r.createdAt.getTime() / 1000) : null,
-            }))}
-          />
-        </CardContent>
-      </Card>
+      <UsersPanel currentUserId={me.id} rows={rows} />
     </div>
   );
 }

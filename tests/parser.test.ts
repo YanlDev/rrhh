@@ -5,10 +5,14 @@ import { analyzeDay } from "../src/lib/analyzer/day-analyzer";
 import type { Schedule } from "../src/lib/settings";
 
 const SCHED: Schedule = {
-  weekday: { start: "08:30", end: "18:30", hours: 9 },
-  saturday: { start: "08:30", end: "14:00", hours: 5.5 },
+  weekday: { start: "08:30", end: "18:30", hours: 9, lunchMinutes: 60 },
+  saturday: { start: "08:30", end: "14:00", hours: 5.5, lunchMinutes: 0 },
   toleranceMinutes: 5,
   duplicateThresholdMinutes: 2,
+  minLunchMinutes: 25,
+  lunchWindowStart: "12:00",
+  lunchWindowEnd: "14:00",
+  effectiveFrom: "2020-01-01",
 };
 import fs from "node:fs";
 import path from "node:path";

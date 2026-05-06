@@ -1,39 +1,70 @@
 import { db } from "./db";
-import { appSettings, type AppSettings } from "./db/schema";
-
-const DEFAULTS: Omit<AppSettings, "updatedAt"> = {
-  id: "default",
-  weekdayStart: "08:30",
-  weekdayEnd: "18:30",
-  weekdayHours: 9,
-  saturdayStart: "08:30",
-  saturdayEnd: "14:00",
-  saturdayHours: 5.5,
-  toleranceMinutes: 5,
-  duplicateThresholdMinutes: 2,
-};
+import { schedulePeriods, type SchedulePeriod } from "./db/schema";
+import { asc } from "drizzle-orm";
+import { cache } from "react";
 
 export type Schedule = {
-  weekday: { start: string; end: string; hours: number };
-  saturday: { start: string; end: string; hours: number };
+  weekday: { start: string; end: string; hours: number; lunchMinutes: number };
+  saturday: { start: string; end: string; hours: number; lunchMinutes: number };
   toleranceMinutes: number;
   duplicateThresholdMinutes: number;
+  minLunchMinutes: number;
+  lunchWindowStart: string;
+  lunchWindowEnd: string;
+  effectiveFrom: string;
 };
 
-export async function getSettings(): Promise<AppSettings> {
-  const rows = await db.select().from(appSettings);
-  if (rows[0]) return rows[0];
-  await db.insert(appSettings).values(DEFAULTS).onConflictDoNothing();
-  const seeded = await db.select().from(appSettings);
-  return seeded[0]!;
+function periodToSchedule(p: SchedulePeriod): Schedule {
+  return {
+    weekday: {
+      start: p.weekdayStart,
+      end: p.weekdayEnd,
+      hours: p.weekdayHours,
+      lunchMinutes: p.weekdayLunchMinutes,
+    },
+    saturday: {
+      start: p.saturdayStart,
+      end: p.saturdayEnd,
+      hours: p.saturdayHours,
+      lunchMinutes: p.saturdayLunchMinutes,
+    },
+    toleranceMinutes: p.toleranceMinutes,
+    duplicateThresholdMinutes: p.duplicateThresholdMinutes,
+    minLunchMinutes: p.minLunchMinutes,
+    lunchWindowStart: p.lunchWindowStart,
+    lunchWindowEnd: p.lunchWindowEnd,
+    effectiveFrom: p.effectiveFrom,
+  };
 }
 
-export async function getSchedule(): Promise<Schedule> {
-  const s = await getSettings();
-  return {
-    weekday: { start: s.weekdayStart, end: s.weekdayEnd, hours: s.weekdayHours },
-    saturday: { start: s.saturdayStart, end: s.saturdayEnd, hours: s.saturdayHours },
-    toleranceMinutes: s.toleranceMinutes,
-    duplicateThresholdMinutes: s.duplicateThresholdMinutes,
-  };
+/** Carga todos los periodos ordenados ascendentes por effectiveFrom (cacheado por request). */
+export const loadAllSchedulePeriods = cache(async (): Promise<SchedulePeriod[]> => {
+  const rows = await db.select().from(schedulePeriods).orderBy(asc(schedulePeriods.effectiveFrom));
+  return rows;
+});
+
+/** Selector: dado un workDate ('YYYY-MM-DD'), elige el último periodo con effectiveFrom <= workDate. */
+export function pickScheduleForDate(periods: SchedulePeriod[], workDate: string): Schedule {
+  if (periods.length === 0) {
+    throw new Error("No hay periodos de horario configurados");
+  }
+  // periods viene ASC. Recorrer al revés y devolver el primero <= workDate.
+  for (let i = periods.length - 1; i >= 0; i--) {
+    if (periods[i].effectiveFrom <= workDate) return periodToSchedule(periods[i]);
+  }
+  // Si workDate es anterior a todos, usar el más antiguo (mejor que crashear).
+  return periodToSchedule(periods[0]);
+}
+
+/** Conveniencia: una sola llamada para una fecha. */
+export async function getScheduleFor(workDate: string): Promise<Schedule> {
+  const periods = await loadAllSchedulePeriods();
+  return pickScheduleForDate(periods, workDate);
+}
+
+/** Conveniencia para flujos sin fecha (parser de Excel): usa el periodo más reciente. */
+export async function getCurrentSchedule(): Promise<Schedule> {
+  const periods = await loadAllSchedulePeriods();
+  if (periods.length === 0) throw new Error("No hay periodos de horario configurados");
+  return periodToSchedule(periods[periods.length - 1]);
 }

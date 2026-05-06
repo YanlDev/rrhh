@@ -1,6 +1,5 @@
-import { ensureMigrated } from "@/lib/db";
-import { getSettings } from "@/lib/settings";
-import { ScheduleEditor } from "@/components/schedule-editor";
+import { listSchedulePeriodsAction } from "@/actions/schedule";
+import { SchedulePeriodsEditor } from "@/components/schedule-editor";
 import { Button } from "@/components/ui/button";
 import { Clock, ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -8,8 +7,25 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 
 export default async function SchedulePage() {
-  await ensureMigrated();
-  const s = await getSettings();
+  const rows = await listSchedulePeriodsAction();
+  const periods = rows.map((p) => ({
+    id: p.id,
+    effectiveFrom: p.effectiveFrom,
+    weekdayStart: p.weekdayStart,
+    weekdayEnd: p.weekdayEnd,
+    weekdayHours: p.weekdayHours,
+    weekdayLunchMinutes: p.weekdayLunchMinutes,
+    saturdayStart: p.saturdayStart,
+    saturdayEnd: p.saturdayEnd,
+    saturdayHours: p.saturdayHours,
+    saturdayLunchMinutes: p.saturdayLunchMinutes,
+    toleranceMinutes: p.toleranceMinutes,
+    duplicateThresholdMinutes: p.duplicateThresholdMinutes,
+    minLunchMinutes: p.minLunchMinutes,
+    lunchWindowStart: p.lunchWindowStart,
+    lunchWindowEnd: p.lunchWindowEnd,
+  }));
+
   return (
     <div className="space-y-6">
       <div>
@@ -20,22 +36,13 @@ export default async function SchedulePage() {
           <Clock className="size-5" /> Horarios y tolerancias
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Cambios aplican a todo el sistema. Al guardar, se recalculan automáticamente todos los días registrados.
+          Maneja periodos versionados. Cuando cambian las reglas (p. ej. nuevo horario de
+          sábado, nueva duración de almuerzo) crea un periodo nuevo con la fecha desde la
+          que aplica. Los días anteriores siguen calculándose con su periodo correspondiente.
         </p>
       </div>
 
-      <ScheduleEditor
-        initial={{
-          weekdayStart: s.weekdayStart,
-          weekdayEnd: s.weekdayEnd,
-          weekdayHours: s.weekdayHours,
-          saturdayStart: s.saturdayStart,
-          saturdayEnd: s.saturdayEnd,
-          saturdayHours: s.saturdayHours,
-          toleranceMinutes: s.toleranceMinutes,
-          duplicateThresholdMinutes: s.duplicateThresholdMinutes,
-        }}
-      />
+      <SchedulePeriodsEditor periods={periods} />
     </div>
   );
 }

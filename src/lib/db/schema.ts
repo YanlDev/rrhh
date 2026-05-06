@@ -72,6 +72,8 @@ export const attendanceDays = pgTable(
     workedMinutes: integer("worked_minutes"),
     lateMinutes: integer("late_minutes").notNull().default(0),
     earlyLeaveMinutes: integer("early_leave_minutes").notNull().default(0),
+    overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+    undertimeMinutes: integer("undertime_minutes").notNull().default(0),
     incidents: jsonb("incidents").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
 
     modifiedAt: now(),
@@ -90,71 +92,76 @@ export const holidays = pgTable("holidays", {
   isNational: boolean("is_national").notNull().default(true),
 });
 
-export const appSettings = pgTable("app_settings", {
-  id: text("id").primaryKey().default("default"),
-  weekdayStart: text("weekday_start").notNull().default("08:30"),
-  weekdayEnd: text("weekday_end").notNull().default("18:30"),
-  weekdayHours: real("weekday_hours").notNull().default(9),
-  saturdayStart: text("saturday_start").notNull().default("08:30"),
-  saturdayEnd: text("saturday_end").notNull().default("14:00"),
-  saturdayHours: real("saturday_hours").notNull().default(5.5),
-  toleranceMinutes: integer("tolerance_minutes").notNull().default(5),
-  duplicateThresholdMinutes: integer("duplicate_threshold_minutes").notNull().default(2),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+export const schedulePeriods = pgTable(
+  "schedule_periods",
+  {
+    id: id(),
+    effectiveFrom: text("effective_from").notNull().unique(), // 'YYYY-MM-DD'
+    weekdayStart: text("weekday_start").notNull().default("08:30"),
+    weekdayEnd: text("weekday_end").notNull().default("18:30"),
+    weekdayHours: real("weekday_hours").notNull().default(9),
+    weekdayLunchMinutes: integer("weekday_lunch_minutes").notNull().default(60),
+    saturdayStart: text("saturday_start").notNull().default("08:30"),
+    saturdayEnd: text("saturday_end").notNull().default("14:00"),
+    saturdayHours: real("saturday_hours").notNull().default(5.5),
+    saturdayLunchMinutes: integer("saturday_lunch_minutes").notNull().default(0),
+    toleranceMinutes: integer("tolerance_minutes").notNull().default(5),
+    duplicateThresholdMinutes: integer("duplicate_threshold_minutes").notNull().default(2),
+    minLunchMinutes: integer("min_lunch_minutes").notNull().default(25),
+    lunchWindowStart: text("lunch_window_start").notNull().default("12:00"),
+    lunchWindowEnd: text("lunch_window_end").notNull().default("14:00"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    fromIdx: index("schedule_periods_from_idx").on(t.effectiveFrom),
+  })
+);
 
-/* =========================== Auth.js tables =========================== */
+/* =========================== Auth local (username + password) =========================== */
 export const ROLES = ["admin", "rrhh", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
-export const users = pgTable("users", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  name: text("name"),
-  email: text("email").unique(),
-  emailVerified: timestamp("email_verified", { withTimezone: true, mode: "date" }),
-  image: text("image"),
-  role: text("role").$type<Role>().notNull().default("viewer"),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
-
-export const accounts = pgTable(
-  "accounts",
+export const users = pgTable(
+  "users",
   {
-    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    type: text("type").notNull(),
-    provider: text("provider").notNull(),
-    providerAccountId: text("provider_account_id").notNull(),
-    refresh_token: text("refresh_token"),
-    access_token: text("access_token"),
-    expires_at: integer("expires_at"),
-    token_type: text("token_type"),
-    scope: text("scope"),
-    id_token: text("id_token"),
-    session_state: text("session_state"),
+    id: id(),
+    username: text("username").notNull().unique(),
+    name: text("name").notNull(),
+    role: text("role").$type<Role>().notNull().default("viewer"),
+    active: boolean("active").notNull().default(true),
+    passwordHash: text("password_hash").notNull(),
+    mustChangePassword: boolean("must_change_password").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   },
-  (t) => ({ pk: uniqueIndex("acct_pk").on(t.provider, t.providerAccountId) })
+  (t) => ({
+    usernameIdx: index("users_username_idx").on(t.username),
+  })
 );
 
-export const sessions = pgTable("sessions", {
-  sessionToken: text("session_token").primaryKey(),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  expires: timestamp("expires", { withTimezone: true, mode: "date" }).notNull(),
-});
-
-export const verificationTokens = pgTable(
-  "verification_tokens",
+export const sessions = pgTable(
+  "sessions",
   {
-    identifier: text("identifier").notNull(),
-    token: text("token").notNull(),
-    expires: timestamp("expires", { withTimezone: true, mode: "date" }).notNull(),
+    token: text("token").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    userAgent: text("user_agent"),
+    ip: text("ip"),
   },
-  (t) => ({ pk: uniqueIndex("vt_pk").on(t.identifier, t.token) })
+  (t) => ({
+    userIdx: index("sessions_user_id_idx").on(t.userId),
+    expiresIdx: index("sessions_expires_at_idx").on(t.expiresAt),
+  })
 );
 
-export type User = typeof users.$inferSelect;
-export type AppSettings = typeof appSettings.$inferSelect;
+/* =========================== Tipos exportados =========================== */
+export type SchedulePeriod = typeof schedulePeriods.$inferSelect;
 export type Employee = typeof employees.$inferSelect;
 export type AttendanceDay = typeof attendanceDays.$inferSelect;
 export type ImportBatch = typeof importBatches.$inferSelect;
 export type JustificationType = typeof justificationTypes.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type Session = typeof sessions.$inferSelect;

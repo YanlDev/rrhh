@@ -125,7 +125,7 @@ export function AppSidebar({ role }: { role: "admin" | "rrhh" | "viewer" }) {
       </SidebarContent>
       <SidebarFooter>
         <div className="px-2 py-1 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
-          v0.1 · SQLite local
+          v0.2 · Supabase
         </div>
       </SidebarFooter>
       <SidebarRail />

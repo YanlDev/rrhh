@@ -38,7 +38,8 @@ export async function setCorrectedPunchesAction(args: {
     })
     .where(eq(attendanceDays.id, args.attendanceDayId));
   await recalcAttendanceDay(args.attendanceDayId);
-  revalidatePath("/", "layout");
+  revalidatePath("/review");
+  revalidatePath("/employees", "layout");
   return { ok: true };
 }
 
@@ -50,6 +51,7 @@ export async function clearCorrectionAction(attendanceDayId: string): Promise<{ 
     .set({ correctedPunches: null, modifiedAt: new Date() })
     .where(eq(attendanceDays.id, attendanceDayId));
   await recalcAttendanceDay(attendanceDayId);
-  revalidatePath("/", "layout");
+  revalidatePath("/review");
+  revalidatePath("/employees", "layout");
   return { ok: true };
 }

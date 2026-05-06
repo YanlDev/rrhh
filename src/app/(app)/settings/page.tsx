@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Settings as SettingsIcon, Clock, ShieldCheck, CalendarX, ArrowRight, UserCog } from "lucide-react";
-import { auth } from "@/auth";
+import { getCurrentUser } from "@/lib/auth-helpers";
 
 const SECTIONS = [
   { href: "/settings/schedule", title: "Horarios", description: "Hora de entrada/salida L-V y sábados, tolerancia, umbral de duplicados.", icon: Clock, adminOnly: false },
@@ -11,8 +11,8 @@ const SECTIONS = [
 ];
 
 export default async function SettingsHub() {
-  const session = await auth();
-  const isAdmin = session?.user?.role === "admin";
+  const user = await getCurrentUser();
+  const isAdmin = user?.role === "admin";
   const visible = SECTIONS.filter((s) => !s.adminOnly || isAdmin);
 
   return (

@@ -30,7 +30,7 @@ const REPORTS: ReportDef[] = [
   { type: "daily", title: "Detalle diario", description: "Una fila por persona/día con marcas separadas en columnas.", icon: Calendar, format: "xlsx" },
   { type: "employee-summary", title: "Resumen por empleado", description: "Días trabajados, faltados, justificados, totales y % asistencia.", icon: UserCircle, format: "xlsx" },
   { type: "department", title: "Resumen por departamento", description: "Promedios y totales agregados por equipo.", icon: Building2, format: "xlsx" },
-  { type: "incidents", title: "Incidencias pendientes", description: "Solo días incompletos / ausencias para acción de RRHH.", icon: ListChecks, format: "csv" },
+  { type: "incidents", title: "Incidencias pendientes", description: "Solo días incompletos / ausencias para acción de RRHH.", icon: ListChecks, format: "xlsx" },
 ];
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ period?: string }> }) {

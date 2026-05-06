@@ -3,13 +3,29 @@ import { db, ensureMigrated } from "@/lib/db";
 import { importBatches } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ImportHistoryTable } from "@/components/import-history";
+import { requireRrhh } from "@/lib/auth-helpers";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportPage() {
+  const me = await requireRrhh();
   await ensureMigrated();
-  const batches = await db.select().from(importBatches).orderBy(desc(importBatches.uploadedAt)).limit(10);
+  const batches = await db
+    .select()
+    .from(importBatches)
+    .orderBy(desc(importBatches.uploadedAt))
+    .limit(10);
+
+  const rows = batches.map((b) => ({
+    id: b.id,
+    filename: b.filename,
+    periodStart: b.periodStart,
+    periodEnd: b.periodEnd,
+    employeesCount: b.employeesCount,
+    daysCount: b.daysCount,
+    uploadedAt: b.uploadedAt ? b.uploadedAt.toISOString() : null,
+  }));
 
   return (
     <div className="space-y-8">
@@ -28,33 +44,10 @@ export default async function ImportPage() {
           <CardDescription>Últimas 10 importaciones</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {batches.length === 0 ? (
+          {rows.length === 0 ? (
             <p className="text-sm text-muted-foreground p-6">Sin importaciones previas.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Archivo</TableHead>
-                  <TableHead>Periodo</TableHead>
-                  <TableHead className="text-right">Empleados</TableHead>
-                  <TableHead className="text-right">Días</TableHead>
-                  <TableHead>Subido</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {batches.map((b) => (
-                  <TableRow key={b.id}>
-                    <TableCell className="font-mono text-xs">{b.filename}</TableCell>
-                    <TableCell>{b.periodStart} → {b.periodEnd}</TableCell>
-                    <TableCell className="text-right tabular-nums">{b.employeesCount}</TableCell>
-                    <TableCell className="text-right tabular-nums">{b.daysCount}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {b.uploadedAt ? new Date(b.uploadedAt).toLocaleString("es-PE") : "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <ImportHistoryTable rows={rows} canDelete={me.role === "admin"} />
           )}
         </CardContent>
       </Card>

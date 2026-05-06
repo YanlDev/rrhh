@@ -1,42 +1,111 @@
 "use server";
 
 import { db, ensureMigrated } from "@/lib/db";
-import { appSettings } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { schedulePeriods } from "@/lib/db/schema";
+import { eq, asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { getSettings } from "@/lib/settings";
+import { z } from "zod";
 import { recalcAllAction } from "./recalc";
 import { requireAdmin } from "@/lib/auth-helpers";
 
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-export async function updateScheduleAction(input: {
-  weekdayStart: string;
-  weekdayEnd: string;
-  weekdayHours: number;
-  saturdayStart: string;
-  saturdayEnd: string;
-  saturdayHours: number;
-  toleranceMinutes: number;
-  duplicateThresholdMinutes: number;
-}): Promise<{ ok: true; recalculated: number }> {
+const periodSchema = z.object({
+  effectiveFrom: z.string().regex(DATE_RE, "Fecha inválida (YYYY-MM-DD)"),
+  weekdayStart: z.string().regex(HM_RE, "Hora inválida (HH:mm)"),
+  weekdayEnd: z.string().regex(HM_RE, "Hora inválida (HH:mm)"),
+  weekdayHours: z.number().min(0).max(24),
+  weekdayLunchMinutes: z.number().int().min(0).max(240),
+  saturdayStart: z.string().regex(HM_RE),
+  saturdayEnd: z.string().regex(HM_RE),
+  saturdayHours: z.number().min(0).max(24),
+  saturdayLunchMinutes: z.number().int().min(0).max(240),
+  toleranceMinutes: z.number().int().min(0).max(60),
+  duplicateThresholdMinutes: z.number().int().min(0).max(30),
+  minLunchMinutes: z.number().int().min(0).max(240),
+  lunchWindowStart: z.string().regex(HM_RE),
+  lunchWindowEnd: z.string().regex(HM_RE),
+});
+
+type PeriodInput = z.infer<typeof periodSchema>;
+type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
+
+export async function listSchedulePeriodsAction() {
   await requireAdmin();
   await ensureMigrated();
-  for (const k of ["weekdayStart", "weekdayEnd", "saturdayStart", "saturdayEnd"] as const) {
-    if (!HM_RE.test(input[k])) throw new Error(`Hora inválida en ${k}: ${input[k]} (formato HH:mm)`);
+  return db.select().from(schedulePeriods).orderBy(asc(schedulePeriods.effectiveFrom));
+}
+
+export async function createSchedulePeriodAction(
+  input: PeriodInput
+): Promise<Result<{ id: string; recalculated: number }>> {
+  try {
+    await requireAdmin();
+    await ensureMigrated();
+    const parsed = periodSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+    }
+    const inserted = await db
+      .insert(schedulePeriods)
+      .values({ ...parsed.data, updatedAt: new Date() })
+      .returning({ id: schedulePeriods.id });
+
+    const r = await recalcAllAction();
+    revalidatePath("/", "layout");
+    return { ok: true, data: { id: inserted[0].id, recalculated: r.updated } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Error";
+    if (/unique/i.test(msg)) return { ok: false, error: "Ya existe un periodo con esa fecha" };
+    return { ok: false, error: msg };
   }
-  if (input.weekdayHours <= 0 || input.weekdayHours > 24) throw new Error("Horas L-V fuera de rango");
-  if (input.saturdayHours < 0 || input.saturdayHours > 24) throw new Error("Horas sábado fuera de rango");
-  if (input.toleranceMinutes < 0 || input.toleranceMinutes > 60) throw new Error("Tolerancia fuera de rango");
-  if (input.duplicateThresholdMinutes < 0 || input.duplicateThresholdMinutes > 30) throw new Error("Umbral de duplicados fuera de rango");
+}
 
-  const current = await getSettings();
-  await db
-    .update(appSettings)
-    .set({ ...input, updatedAt: new Date() })
-    .where(eq(appSettings.id, current.id));
+export async function updateSchedulePeriodAction(input: {
+  id: string;
+} & PeriodInput): Promise<Result<{ recalculated: number }>> {
+  try {
+    await requireAdmin();
+    await ensureMigrated();
+    const id = z.string().uuid().safeParse(input.id);
+    if (!id.success) return { ok: false, error: "ID inválido" };
+    const parsed = periodSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+    }
+    await db
+      .update(schedulePeriods)
+      .set({ ...parsed.data, updatedAt: new Date() })
+      .where(eq(schedulePeriods.id, id.data));
 
-  const r = await recalcAllAction();
-  revalidatePath("/", "layout");
-  return { ok: true, recalculated: r.updated };
+    const r = await recalcAllAction();
+    revalidatePath("/", "layout");
+    return { ok: true, data: { recalculated: r.updated } };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error" };
+  }
+}
+
+export async function deleteSchedulePeriodAction(input: {
+  id: string;
+}): Promise<Result<{ recalculated: number }>> {
+  try {
+    await requireAdmin();
+    await ensureMigrated();
+    const id = z.string().uuid().safeParse(input.id);
+    if (!id.success) return { ok: false, error: "ID inválido" };
+
+    const remaining = await db.select({ id: schedulePeriods.id }).from(schedulePeriods);
+    if (remaining.length <= 1) {
+      return { ok: false, error: "Debe quedar al menos un periodo de horario" };
+    }
+    await db.delete(schedulePeriods).where(eq(schedulePeriods.id, id.data));
+
+    const r = await recalcAllAction();
+    revalidatePath("/", "layout");
+    return { ok: true, data: { recalculated: r.updated } };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error" };
+  }
 }

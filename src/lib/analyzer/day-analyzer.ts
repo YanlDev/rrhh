@@ -14,6 +14,8 @@ export type DayAnalysis = {
   workedMinutes: number | null;
   lateMinutes: number;
   earlyLeaveMinutes: number;
+  overtimeMinutes: number;
+  undertimeMinutes: number;
   incidents: string[];
 };
 
@@ -36,6 +38,8 @@ export function analyzeDay(args: {
       workedMinutes: punches.length >= 2 ? toMin(punches[punches.length - 1]) - toMin(punches[0]) : 0,
       lateMinutes: 0,
       earlyLeaveMinutes: 0,
+      overtimeMinutes: 0,
+      undertimeMinutes: 0,
       incidents,
     };
   }
@@ -45,6 +49,7 @@ export function analyzeDay(args: {
   const startMin = toMin(sched.start);
   const endMin = toMin(sched.end);
   const limitMin = startMin + schedule.toleranceMinutes;
+  const expectedMin = Math.round(sched.hours * 60);
 
   if (justified) {
     return {
@@ -52,9 +57,11 @@ export function analyzeDay(args: {
       isWorkday: true,
       checkIn: punches[0] ?? null,
       checkOut: punches[punches.length - 1] ?? null,
-      workedMinutes: justified.countsAsWorked ? Math.round(sched.hours * 60) : 0,
+      workedMinutes: justified.countsAsWorked ? expectedMin : 0,
       lateMinutes: 0,
       earlyLeaveMinutes: 0,
+      overtimeMinutes: 0,
+      undertimeMinutes: 0,
       incidents,
     };
   }
@@ -68,6 +75,8 @@ export function analyzeDay(args: {
       workedMinutes: 0,
       lateMinutes: 0,
       earlyLeaveMinutes: 0,
+      overtimeMinutes: 0,
+      undertimeMinutes: 0,
       incidents: ["no_punches"],
     };
   }
@@ -92,15 +101,48 @@ export function analyzeDay(args: {
     status = "incomplete";
   } else if (punches.length === 4) {
     workedMinutes = (toMin(punches[1]) - inMin) + (outMin - toMin(punches[2]));
+    if (!isSat) {
+      const lunchOutMin = toMin(punches[1]);
+      const lunchMinutes = toMin(punches[2]) - lunchOutMin;
+      const expectedLunch = schedule.weekday.lunchMinutes;
+      // Almuerzo crítico (debajo del piso absoluto): flag adicional severo.
+      if (schedule.minLunchMinutes > 0 && lunchMinutes < schedule.minLunchMinutes) {
+        incidents.push("lunch_critically_short");
+      }
+      if (expectedLunch > 0 && lunchMinutes < expectedLunch) {
+        incidents.push("lunch_too_short");
+      } else if (expectedLunch > 0 && lunchMinutes > expectedLunch) {
+        incidents.push("lunch_too_long");
+      }
+      // Ventana de salida a almuerzo (ej. 12:00-14:00). Se evalúa SOLO el inicio.
+      const winStart = toMin(schedule.lunchWindowStart);
+      const winEnd = toMin(schedule.lunchWindowEnd);
+      if (lunchOutMin < winStart || lunchOutMin > winEnd) {
+        incidents.push("lunch_outside_window");
+      }
+    }
   } else if (punches.length === 2) {
     workedMinutes = outMin - inMin;
-    if (!isSat) incidents.push("only_2_punches_weekday");
+    if (!isSat) {
+      // L-V con solo 2 marcas: NO salió a almorzar. Acción obligatoria.
+      incidents.push("no_lunch_break");
+      status = "incomplete";
+    }
   }
 
   const lateMinutes = Math.max(0, inMin - limitMin);
   const earlyLeaveMinutes = Math.max(0, endMin - outMin);
 
   if (status === "ok" && lateMinutes > 0) status = "late";
+
+  // Horas extras / faltantes — solo para días realmente trabajados (ok / late).
+  let overtimeMinutes = 0;
+  let undertimeMinutes = 0;
+  if (workedMinutes != null && (status === "ok" || status === "late")) {
+    const diff = workedMinutes - expectedMin;
+    if (diff > 0) overtimeMinutes = diff;
+    else if (diff < 0) undertimeMinutes = -diff;
+  }
 
   return {
     status,
@@ -110,6 +152,8 @@ export function analyzeDay(args: {
     workedMinutes,
     lateMinutes,
     earlyLeaveMinutes,
+    overtimeMinutes,
+    undertimeMinutes,
     incidents,
   };
 }
