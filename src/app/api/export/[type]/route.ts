@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ type
   try {
     const { buffer, filename } = await handler(period);
     const mime = filename.endsWith(".csv") ? MIME_CSV : MIME_XLSX;
-    return new NextResponse(buffer, {
+    return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": mime,

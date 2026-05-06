@@ -100,7 +100,7 @@ function styledTable(
     headerRow: true,
     totalsRow: false,
     style: {
-      theme: opts.styleName ?? "TableStyleMedium2",
+      theme: (opts.styleName ?? "TableStyleMedium2") as ExcelJS.TableStyleProperties["theme"],
       showRowStripes: true,
     },
     columns: headers.map((h) => ({ name: h.label, filterButton: true })),
@@ -676,7 +676,7 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
 
   if (statusData.length > 0) {
     const donut = await donutChartPng(statusData, { title: "Distribución de estados", width: 480, height: 260 });
-    const id = wb.addImage({ buffer: donut.buffer, extension: "png" });
+    const id = wb.addImage({ buffer: donut.buffer as unknown as ArrayBuffer, extension: "png" });
     cover.addImage(id, { tl: { col: 2.5, row: 3 }, ext: { width: donut.width / 2, height: donut.height / 2 } });
   }
 
@@ -735,7 +735,7 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
       [{ name: "Min. tarde", color: "#f97316" }, { name: "Ausencias", color: "#ef4444" }],
       { title: "Comparativo por departamento", width: 760, height: 320 },
     );
-    const id = wb.addImage({ buffer: bar.buffer, extension: "png" });
+    const id = wb.addImage({ buffer: bar.buffer as unknown as ArrayBuffer, extension: "png" });
     wsDept.addImage(id, { tl: { col: 0, row: tDept.lastRow + 2 }, ext: { width: bar.width / 2, height: bar.height / 2 } });
   }
 
@@ -860,7 +860,7 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
     const wsDaily = wb.addWorksheet("Asistencia diaria");
     titleBlock(wsDaily, "Asistencia diaria del periodo", `${period.label} · % de empleados activos presentes`, 12);
     const area = await areaChartPng(points, { title: "% asistencia por día laborable", width: 880, height: 320, color: "#10b981", yMax: 100, yUnit: "%" });
-    const id = wb.addImage({ buffer: area.buffer, extension: "png" });
+    const id = wb.addImage({ buffer: area.buffer as unknown as ArrayBuffer, extension: "png" });
     wsDaily.addImage(id, { tl: { col: 0, row: 4 }, ext: { width: area.width / 2, height: area.height / 2 } });
 
     // Tabla auxiliar bajo el chart

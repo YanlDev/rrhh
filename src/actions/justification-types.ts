@@ -29,9 +29,10 @@ export async function createJustificationTypeAction(input: {
 
 export async function updateJustificationTypeAction(input: {
   id: string;
+  code?: string;
   labelEs?: string;
   countsAsWorked?: boolean;
-  color?: string;
+  color?: string | null;
   orderIndex?: number;
   active?: boolean;
 }): Promise<{ ok: true }> {
