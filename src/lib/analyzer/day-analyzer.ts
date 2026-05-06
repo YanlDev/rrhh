@@ -75,6 +75,7 @@ export function analyzeDay(args: {
   let effectiveStart = startMin;
   let effectiveEnd = endMin;
   let justifiedWorkedMin = 0;
+  let windowCoversLunch = false; // true si la ventana incluye el horario de almuerzo
 
   if (justified && justified.fromTime && justified.toTime) {
     const jFrom = toMin(justified.fromTime);
@@ -86,6 +87,20 @@ export function analyzeDay(args: {
       if (jTo >= endMin && jFrom < endMin) effectiveEnd = jFrom;
       // Si la justificación cuenta como trabajada, sumamos sus minutos al worked.
       if (justified.countsAsWorked) justifiedWorkedMin = jTo - jFrom;
+
+      // ¿La ventana se solapa con el horario de almuerzo del periodo?
+      // Si sí, asumimos que el almuerzo ocurrió DENTRO de la ventana
+      // (la persona almorzó durante la comisión / permiso / etc).
+      const lunchStart = toMin(schedule.lunchWindowStart);
+      const lunchEnd = toMin(schedule.lunchWindowEnd);
+      if (!isSat && jFrom < lunchEnd && jTo > lunchStart) {
+        windowCoversLunch = true;
+        const expectedLunch = sched.lunchMinutes;
+        // Descontar el almuerzo esperado de los minutos justificados como trabajados.
+        if (justified.countsAsWorked && expectedLunch > 0) {
+          justifiedWorkedMin = Math.max(0, justifiedWorkedMin - expectedLunch);
+        }
+      }
     }
   }
 
@@ -148,12 +163,13 @@ export function analyzeDay(args: {
     }
   } else if (punches.length === 2) {
     workedMinutes = outMin - inMin;
-    // 2 marcas es problema solo si el horario del día CONTEMPLA almuerzo.
-    // Sábado o días con override de "trabajo corrido" (lunchMinutes=0) no flaggean.
+    // 2 marcas es problema solo si el horario del día CONTEMPLA almuerzo
+    // Y la justificación NO cubre la hora del almuerzo (en cuyo caso
+    // se asume que comió durante la ventana).
     const expectedLunch = isSat
       ? schedule.saturday.lunchMinutes
       : schedule.weekday.lunchMinutes;
-    if (!isSat && expectedLunch > 0) {
+    if (!isSat && expectedLunch > 0 && !windowCoversLunch) {
       incidents.push("no_lunch_break");
       status = "incomplete";
     }

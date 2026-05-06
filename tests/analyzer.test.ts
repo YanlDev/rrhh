@@ -576,3 +576,40 @@ test("Justificación · ventana de inicio + tardanza después de la ventana", ()
   // limit ajustado: 11:00 + 5 = 11:05. Llegó 11:30 → tarde 25 min.
   assert.equal(r.lateMinutes, 25);
 });
+
+test("Justificación · 2 marcas tarde + ventana mañana cubre lunch (caso real comisión)", () => {
+  // Comisión 08:30-14:57, llega oficina 14:58, sale 18:37.
+  // Almuerzo se asume DENTRO de la ventana de comisión.
+  const r = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["14:58", "18:37"],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: true, fromTime: "08:30", toTime: "14:57" },
+  });
+  // Real = 18:37 - 14:58 = 219 min
+  // Justificado bruto = 14:57 - 08:30 = 387 min
+  // Ventana cubre lunch (12:00-14:00) → descontar 90 min del justificado
+  // Justificado neto = 387 - 90 = 297 min
+  // Total = 219 + 297 = 516 min
+  assert.equal(r.workedMinutes, 516);
+  assert.equal(r.lateMinutes, 0, "ventana cubre el inicio: no es tarde");
+  assert.equal(r.overtimeMinutes, 6, "+6 min vs 510 esperado");
+  assert.deepEqual(r.incidents, [], "no se dispara no_lunch_break porque la ventana cubrió la hora del almuerzo");
+  assert.equal(r.status, "justified");
+});
+
+test("Justificación · ventana mañana NO cubre lunch (no almorzó durante)", () => {
+  // Comisión 08:30-11:30 (sin tocar el horario de almuerzo).
+  // Llega 11:35, sale 18:30. Esa persona aún debió almorzar en su propio horario.
+  const r = analyzeDay({
+    schedule: SCHED_MAYO,
+    punches: ["11:35", "18:30"],
+    dayOfWeek: LUNES,
+    isHoliday: false,
+    justified: { countsAsWorked: true, fromTime: "08:30", toTime: "11:30" },
+  });
+  // 2 marcas L-V, ventana NO cubre lunch → debería disparar no_lunch_break
+  assert.ok(r.incidents.includes("no_lunch_break"));
+  assert.equal(r.status, "incomplete");
+});
