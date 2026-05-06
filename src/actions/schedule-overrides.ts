@@ -8,8 +8,6 @@ import { z } from "zod";
 import { recalcAllAction } from "./recalc";
 import { requireAdmin } from "@/lib/auth-helpers";
 
-export const maxDuration = 60;
-
 const HM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

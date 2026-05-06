@@ -5,6 +5,8 @@ import { CalendarDays, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+// Server Actions de esta page disparan recalc de toda la BD; subir timeout.
+export const maxDuration = 60;
 
 export default async function ScheduleOverridesPage() {
   const rows = await listScheduleOverridesAction();
