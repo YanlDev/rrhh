@@ -749,6 +749,9 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
       lateDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'late' THEN 1 END)`,
       absDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'absent' THEN 1 END)`,
       jusDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'justified' THEN 1 END)`,
+      // Para ranking de puntualidad:
+      marcables: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.isWorkday} AND ${attendanceDays.status} NOT IN ('justified','no_workday'))`,
+      puntuales: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.graceMinutes} = 0 AND ${attendanceDays.lateMinutes} = 0 AND ${attendanceDays.isWorkday} AND ${attendanceDays.checkIn} IS NOT NULL)`,
     })
     .from(attendanceDays)
     .innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
@@ -789,15 +792,24 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
   const wsRank = wb.addWorksheet("Ranking puntualidad");
   titleBlock(wsRank, "Top 10 puntualidad", period.label, 4);
 
-  // Puntuales: primero por minutos tarde (ASC), luego por minutos en gracia (ASC) —
-  // distingue al que llega antes de 08:30 del que llega en la ventana de tolerancia.
-  const sortedAsc = [...empRows]
-    .sort((a, b) => Number(a.late) - Number(b.late) || Number(a.grace) - Number(b.grace))
+  // Más puntuales: % de días con entrada ≤ 08:30. Filtra a quienes tienen al menos
+  // la mitad de los días del período para que ingresos parciales no compitan.
+  const maxMarcables = Math.max(0, ...empRows.map((r) => Number(r.marcables)));
+  const minMarcables = Math.max(1, Math.floor(maxMarcables * 0.5));
+  const punctualRows = empRows
+    .filter((r) => Number(r.marcables) >= minMarcables)
+    .map((r) => {
+      const m = Number(r.marcables);
+      const p = Number(r.puntuales);
+      return { ...r, pct: m > 0 ? Math.round((p / m) * 100) : 0 };
+    });
+  const sortedAsc = [...punctualRows]
+    .sort((a, b) => b.pct - a.pct || Number(a.late) - Number(b.late))
     .slice(0, 10);
   const sortedDesc = [...empRows].sort((a, b) => Number(b.late) - Number(a.late)).slice(0, 10);
 
   // Group label
-  wsRank.mergeCells("A4:E4");
+  wsRank.mergeCells("A4:G4");
   const g1 = wsRank.getCell("A4");
   g1.value = "MÁS PUNTUALES";
   g1.font = { bold: true, color: { argb: COLORS.okText } };
@@ -809,10 +821,12 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
       { label: "#", width: 5, align: "center" },
       { label: "Empleado", width: 32 },
       { label: "Depto", width: 18 },
-      { label: "Min. tarde", width: 14, align: "right" },
-      { label: "Min. en gracia", width: 14, align: "right" },
+      { label: "% puntual", width: 12, align: "right" },
+      { label: "Días puntuales", width: 14, align: "right" },
+      { label: "Días marcables", width: 14, align: "right" },
+      { label: "Min. tarde", width: 12, align: "right" },
     ],
-    sortedAsc.map((r, i) => [i + 1, r.name, r.dept ?? "", Number(r.late), Number(r.grace)]),
+    sortedAsc.map((r, i) => [i + 1, r.name, r.dept ?? "", r.pct, Number(r.puntuales), Number(r.marcables), Number(r.late)]),
     { tableName: "TopPuntuales", styleName: "TableStyleMedium7" },
   );
 

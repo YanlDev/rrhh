@@ -72,13 +72,17 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       .from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
       .where(and(inRange, eq(employees.active, true))).groupBy(employees.id)
       .orderBy(desc(sql`SUM(${attendanceDays.lateMinutes})`)).limit(8),
-    // Más puntuales: primero por minutos tarde (ASC), luego por minutos en gracia (ASC)
-    // — así el que entra antes de 08:30 supera al que entra entre 08:30-08:35.
-    // `total` muestra los minutos en gracia (los minutos tarde son 0 para todos los top).
-    db.select({ id: employees.id, name: employees.name, dept: employees.department, total: sql<number>`SUM(${attendanceDays.graceMinutes})` })
+    // Más puntuales: % puntualidad (días con entrada ≤ 08:30 / días que debía marcar).
+    // Se filtra/ordena en JS porque necesitamos descartar a quien tiene pocos días en
+    // el período (ej. ingresos a mitad de mes) para que compita parejo.
+    db.select({
+      id: employees.id, name: employees.name, dept: employees.department,
+      marcables: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.isWorkday} AND ${attendanceDays.status} NOT IN ('justified','no_workday'))`,
+      puntuales: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.graceMinutes} = 0 AND ${attendanceDays.lateMinutes} = 0 AND ${attendanceDays.isWorkday} AND ${attendanceDays.checkIn} IS NOT NULL)`,
+      lateTotal: sql<number>`COALESCE(SUM(${attendanceDays.lateMinutes}), 0)`,
+    })
       .from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
-      .where(and(inRange, eq(employees.active, true))).groupBy(employees.id)
-      .orderBy(asc(sql`SUM(${attendanceDays.lateMinutes})`), asc(sql`SUM(${attendanceDays.graceMinutes})`)).limit(8),
+      .where(and(inRange, eq(employees.active, true))).groupBy(employees.id),
     db.select({ id: employees.id, name: employees.name, dept: employees.department, total: sql<number>`SUM(${attendanceDays.workedMinutes})` })
       .from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
       .where(and(inRange, eq(employees.active, true))).groupBy(employees.id)
@@ -127,6 +131,24 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const dailyArr = Array.from(dailyMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, v]) => ({ date, present: v.present, expected: v.expected, pct: v.expected ? Math.round((v.present / v.expected) * 100) : 0 }));
+
+  // Top puntuales: filtra a quienes tienen al menos la mitad de días del período
+  // para que ingresos a mitad de mes no compitan con empleados con período completo.
+  const maxMarcables = Math.max(0, ...topPunctual.map((r) => Number(r.marcables)));
+  const minMarcables = Math.max(1, Math.floor(maxMarcables * 0.5));
+  const topPunctualPct = topPunctual
+    .filter((r) => Number(r.marcables) >= minMarcables)
+    .map((r) => {
+      const m = Number(r.marcables);
+      const p = Number(r.puntuales);
+      return {
+        id: r.id, name: r.name, dept: r.dept,
+        total: m > 0 ? Math.round((p / m) * 100) : 0,
+        lateTotal: Number(r.lateTotal),
+      };
+    })
+    .sort((a, b) => b.total - a.total || a.lateTotal - b.lateTotal)
+    .slice(0, 8);
 
   const totalDays = Number(days[0].n);
   const presentish = Number(late[0].n) + (totalDays - Number(late[0].n) - Number(inc[0].n) - Number(abs[0].n));
@@ -198,13 +220,12 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           />
           <RankCard
             title="Más puntuales"
-            description="Llegada antes de 08:30 — desempata por minutos en gracia (08:30-08:35)"
-            rows={topPunctual}
-            unit="min en gracia"
+            description="% de días con entrada ≤ 08:30 (excluye empleados con período parcial)"
+            rows={topPunctualPct}
+            unit="% puntual"
             icon={ArrowUpNarrowWide}
             accent="text-emerald-600"
             periodQs={periodQs}
-            invert
           />
           <RankCard
             title="Más horas trabajadas"
