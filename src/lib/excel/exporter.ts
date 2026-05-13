@@ -745,6 +745,7 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
       name: employees.name, dept: employees.department,
       worked: sql<number>`COALESCE(SUM(${attendanceDays.workedMinutes}), 0)`,
       late: sql<number>`COALESCE(SUM(${attendanceDays.lateMinutes}), 0)`,
+      grace: sql<number>`COALESCE(SUM(${attendanceDays.graceMinutes}), 0)`,
       lateDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'late' THEN 1 END)`,
       absDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'absent' THEN 1 END)`,
       jusDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'justified' THEN 1 END)`,
@@ -788,11 +789,15 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
   const wsRank = wb.addWorksheet("Ranking puntualidad");
   titleBlock(wsRank, "Top 10 puntualidad", period.label, 4);
 
-  const sortedAsc = [...empRows].sort((a, b) => Number(a.late) - Number(b.late)).slice(0, 10);
+  // Puntuales: primero por minutos tarde (ASC), luego por minutos en gracia (ASC) —
+  // distingue al que llega antes de 08:30 del que llega en la ventana de tolerancia.
+  const sortedAsc = [...empRows]
+    .sort((a, b) => Number(a.late) - Number(b.late) || Number(a.grace) - Number(b.grace))
+    .slice(0, 10);
   const sortedDesc = [...empRows].sort((a, b) => Number(b.late) - Number(a.late)).slice(0, 10);
 
   // Group label
-  wsRank.mergeCells("A4:D4");
+  wsRank.mergeCells("A4:E4");
   const g1 = wsRank.getCell("A4");
   g1.value = "MÁS PUNTUALES";
   g1.font = { bold: true, color: { argb: COLORS.okText } };
@@ -805,8 +810,9 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
       { label: "Empleado", width: 32 },
       { label: "Depto", width: 18 },
       { label: "Min. tarde", width: 14, align: "right" },
+      { label: "Min. en gracia", width: 14, align: "right" },
     ],
-    sortedAsc.map((r, i) => [i + 1, r.name, r.dept ?? "", Number(r.late)]),
+    sortedAsc.map((r, i) => [i + 1, r.name, r.dept ?? "", Number(r.late), Number(r.grace)]),
     { tableName: "TopPuntuales", styleName: "TableStyleMedium7" },
   );
 

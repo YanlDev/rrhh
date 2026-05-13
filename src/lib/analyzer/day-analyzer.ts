@@ -13,6 +13,7 @@ export type DayAnalysis = {
   checkOut: string | null;
   workedMinutes: number | null;
   lateMinutes: number;
+  graceMinutes: number;
   earlyLeaveMinutes: number;
   overtimeMinutes: number;
   undertimeMinutes: number;
@@ -42,6 +43,7 @@ export function analyzeDay(args: {
       checkOut: punches[punches.length - 1] ?? null,
       workedMinutes: punches.length >= 2 ? toMin(punches[punches.length - 1]) - toMin(punches[0]) : 0,
       lateMinutes: 0,
+      graceMinutes: 0,
       earlyLeaveMinutes: 0,
       overtimeMinutes: 0,
       undertimeMinutes: 0,
@@ -64,6 +66,7 @@ export function analyzeDay(args: {
       checkOut: punches[punches.length - 1] ?? null,
       workedMinutes: justified.countsAsWorked ? expectedMin : 0,
       lateMinutes: 0,
+      graceMinutes: 0,
       earlyLeaveMinutes: 0,
       overtimeMinutes: 0,
       undertimeMinutes: 0,
@@ -114,6 +117,7 @@ export function analyzeDay(args: {
       checkOut: null,
       workedMinutes: 0,
       lateMinutes: 0,
+      graceMinutes: 0,
       earlyLeaveMinutes: 0,
       overtimeMinutes: 0,
       undertimeMinutes: 0,
@@ -176,6 +180,9 @@ export function analyzeDay(args: {
   }
 
   const lateMinutes = Math.max(0, inMin - limitMin);
+  // Minutos dentro de la ventana de gracia (post-hora base, pre-límite de tardanza).
+  // Sirve para distinguir "puntual estricto" (≤ start) de "en gracia" en rankings.
+  const graceMinutes = Math.min(Math.max(0, inMin - effectiveStart), schedule.toleranceMinutes);
   const earlyLeaveMinutes = Math.max(0, effectiveEnd - outMin);
 
   if (status === "ok" && lateMinutes > 0) status = "late";
@@ -206,6 +213,7 @@ export function analyzeDay(args: {
     checkOut,
     workedMinutes,
     lateMinutes,
+    graceMinutes,
     earlyLeaveMinutes,
     overtimeMinutes,
     undertimeMinutes,

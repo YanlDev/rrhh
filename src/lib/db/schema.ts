@@ -75,6 +75,7 @@ export const attendanceDays = pgTable(
     checkOut: text("check_out"),
     workedMinutes: integer("worked_minutes"),
     lateMinutes: integer("late_minutes").notNull().default(0),
+    graceMinutes: integer("grace_minutes").notNull().default(0),
     earlyLeaveMinutes: integer("early_leave_minutes").notNull().default(0),
     overtimeMinutes: integer("overtime_minutes").notNull().default(0),
     undertimeMinutes: integer("undertime_minutes").notNull().default(0),

@@ -72,10 +72,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       .from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
       .where(and(inRange, eq(employees.active, true))).groupBy(employees.id)
       .orderBy(desc(sql`SUM(${attendanceDays.lateMinutes})`)).limit(8),
-    db.select({ id: employees.id, name: employees.name, dept: employees.department, total: sql<number>`SUM(${attendanceDays.lateMinutes})` })
+    // Más puntuales: primero por minutos tarde (ASC), luego por minutos en gracia (ASC)
+    // — así el que entra antes de 08:30 supera al que entra entre 08:30-08:35.
+    // `total` muestra los minutos en gracia (los minutos tarde son 0 para todos los top).
+    db.select({ id: employees.id, name: employees.name, dept: employees.department, total: sql<number>`SUM(${attendanceDays.graceMinutes})` })
       .from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
       .where(and(inRange, eq(employees.active, true))).groupBy(employees.id)
-      .orderBy(asc(sql`SUM(${attendanceDays.lateMinutes})`)).limit(8),
+      .orderBy(asc(sql`SUM(${attendanceDays.lateMinutes})`), asc(sql`SUM(${attendanceDays.graceMinutes})`)).limit(8),
     db.select({ id: employees.id, name: employees.name, dept: employees.department, total: sql<number>`SUM(${attendanceDays.workedMinutes})` })
       .from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
       .where(and(inRange, eq(employees.active, true))).groupBy(employees.id)
@@ -195,9 +198,9 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           />
           <RankCard
             title="Más puntuales"
-            description="Empleados con menos minutos tarde acumulados"
+            description="Llegada antes de 08:30 — desempata por minutos en gracia (08:30-08:35)"
             rows={topPunctual}
-            unit="min tarde"
+            unit="min en gracia"
             icon={ArrowUpNarrowWide}
             accent="text-emerald-600"
             periodQs={periodQs}

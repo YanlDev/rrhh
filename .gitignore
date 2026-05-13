@@ -97,3 +97,5 @@ coverage/
 .turbo/
 .swc/
 tmp/
+
+backups/
