@@ -13,6 +13,7 @@ import {
   Clock,
   UserCog,
   CalendarDays,
+  Trophy,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -40,6 +41,7 @@ const NAV = [
   { href: "/import", label: "Importar", icon: Upload },
   { href: "/review", label: "Revisión", icon: ClipboardCheck },
   { href: "/employees", label: "Empleados", icon: Users },
+  { href: "/rankings", label: "Rankings", icon: Trophy },
   { href: "/reports", label: "Reportes", icon: FileDown },
 ];
 
