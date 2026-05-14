@@ -750,8 +750,8 @@ export async function exportExecutive(period: Period): Promise<{ buffer: Buffer;
       absDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'absent' THEN 1 END)`,
       jusDays: sql<number>`COUNT(CASE WHEN ${attendanceDays.status} = 'justified' THEN 1 END)`,
       // Para ranking de puntualidad:
-      marcables: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.isWorkday} AND ${attendanceDays.status} NOT IN ('justified','no_workday'))`,
-      puntuales: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.graceMinutes} = 0 AND ${attendanceDays.lateMinutes} = 0 AND ${attendanceDays.isWorkday} AND ${attendanceDays.checkIn} IS NOT NULL)`,
+      marcables: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.isWorkday} AND ${attendanceDays.status} != 'no_workday')`,
+      puntuales: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.status} = 'justified' OR (${attendanceDays.graceMinutes} = 0 AND ${attendanceDays.lateMinutes} = 0 AND ${attendanceDays.isWorkday} AND ${attendanceDays.checkIn} IS NOT NULL))`,
     })
     .from(attendanceDays)
     .innerJoin(employees, eq(employees.id, attendanceDays.employeeId))

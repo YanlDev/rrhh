@@ -77,8 +77,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     // el período (ej. ingresos a mitad de mes) para que compita parejo.
     db.select({
       id: employees.id, name: employees.name, dept: employees.department,
-      marcables: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.isWorkday} AND ${attendanceDays.status} NOT IN ('justified','no_workday'))`,
-      puntuales: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.graceMinutes} = 0 AND ${attendanceDays.lateMinutes} = 0 AND ${attendanceDays.isWorkday} AND ${attendanceDays.checkIn} IS NOT NULL)`,
+      // Marcables: días laborables (excluye domingos/feriados). Incluye justificados.
+      marcables: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.isWorkday} AND ${attendanceDays.status} != 'no_workday')`,
+      // Puntuales: entrada ≤ 08:30 O día justificado (cualquier tipo).
+      puntuales: sql<number>`COUNT(*) FILTER (WHERE ${attendanceDays.status} = 'justified' OR (${attendanceDays.graceMinutes} = 0 AND ${attendanceDays.lateMinutes} = 0 AND ${attendanceDays.isWorkday} AND ${attendanceDays.checkIn} IS NOT NULL))`,
       lateTotal: sql<number>`COALESCE(SUM(${attendanceDays.lateMinutes}), 0)`,
     })
       .from(attendanceDays).innerJoin(employees, eq(employees.id, attendanceDays.employeeId))
@@ -220,7 +222,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           />
           <RankCard
             title="Más puntuales"
-            description="% de días con entrada ≤ 08:30 (excluye empleados con período parcial)"
+            description="% de días con entrada ≤ 08:30 o justificados (excluye períodos parciales)"
             rows={topPunctualPct}
             unit="% puntual"
             icon={ArrowUpNarrowWide}
